@@ -1,5 +1,5 @@
 import socket
-
+import sys
 
 # Parse the scheme, host, and request path for the HTTP client.
 class URL:
@@ -43,7 +43,20 @@ class URL:
                     header, value = line.split(":", 1)
                     response_headers[header.casefold()] = value.strip()
 
-                # TODO: replace assertions with explicit response handling.
-                assert "transfer-encoding" not in response_headers
-                assert "content-encoding" not in response_headers
+                # Reject encodings this minimal client cannot frame or decode safely.
+                if "transfer-encoding" in response_headers:
+                    raise NotImplementedError(
+                        "Transfer-Encoding responses are not supported"
+                    )
+                if "content-encoding" in response_headers:
+                    raise NotImplementedError(
+                        "Content-Encoding responses are not supported"
+                    )
                 return response.read()
+
+# Run one HTTP request when this file is executed from the command line.
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        raise SystemExit("Usage: python client.py http://example.com/")
+
+    print(URL(sys.argv[1]).request())

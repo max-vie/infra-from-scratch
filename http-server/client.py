@@ -3,16 +3,38 @@ import sys
 
 # Parse the scheme, host, and request path for the HTTP client.
 class URL:
-    def __init__(self, url):
-        self.scheme, url = url.split("://", 1)
+    def __init__(self, address):
+        # Treat a bare host or host:port as an HTTP address.
+        if "://" not in address:
+            address = "http://" + address
 
-        assert self.scheme == "http"
+        self.scheme, address = address.split("://", 1)
+        if self.scheme != "http":
+            raise ValueError("Only http:// addresses are supported") # for now :^)
 
-        if "/" not in url:
-            url = url + "/"
+        if "/" in address:
+            authority, path = address.split("/", 1)
+            self.path = "/" + path
+        else:
+            authority = address
+            self.path = "/"
 
-        self.host, url = url.split("/", 1)
-        self.path = "/" + url
+        if ":" in authority:
+            self.host, port = authority.rsplit(":", 1)
+            try:
+                self.port = int(port)
+            except ValueError as error:
+                raise ValueError(f"Invalid port in {address!r}") from error
+        else:
+            self.host = authority
+            self.port = 80
+
+        if not self.host:
+            raise ValueError("A host is required")
+        if not 1 <= self.port <= 65535:
+            raise ValueError("Port must be between 1 and 65535")
+
+        self.host_header = authority
 
     def request(self):
         # Open a TCP connection and send the existing HTTP/1.0 request.
@@ -21,10 +43,10 @@ class URL:
             type=socket.SOCK_STREAM,
             proto=socket.IPPROTO_TCP,
         ) as s:
-            s.connect((self.host, 80))
+            s.connect((self.host, self.port))
 
             request = "GET {} HTTP/1.0\r\n".format(self.path)
-            request += "Host: {}\r\n".format(self.host)
+            request += "Host: {}\r\n".format(self.host_header)
             request += "\r\n"
             s.sendall(request.encode("utf8"))
 
@@ -57,6 +79,6 @@ class URL:
 # Run one HTTP request when this file is executed from the command line.
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        raise SystemExit("Usage: python client.py http://example.com/")
+        raise SystemExit("Usage: python client.py [http://]host[:port][/path]")
 
     print(URL(sys.argv[1]).request())

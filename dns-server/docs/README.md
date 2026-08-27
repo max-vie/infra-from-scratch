@@ -1,6 +1,6 @@
 # Documentation
 
-This directory stores documentation for the DNS server project.
+The DNS component's supporting documents live here.
 
 ## Run
 
@@ -18,7 +18,7 @@ Query it with:
 dig @127.0.0.1 -p 8053 app.local A
 ```
 
-## Test
+## Tests
 
 Run the response tests with:
 
@@ -26,12 +26,12 @@ Run the response tests with:
 go test server.go server_test.go
 ```
 
-## Structure
+## ADRs
 
-- [`adr/`](adr/) contains Architecture Decision Records.
+Architecture Decision Records live in [`adr/`](adr/).
 
-ADRs use a sequential number and short description, for example:
+ADR filenames use a zero-padded number and lowercase slug, for example:
 
 ```text
-adr/0001-short-description.md
+adr/001-short-description.md
 ```

@@ -1,6 +1,6 @@
 # infra-from-scratch
 
-A hands-on project for rebuilding small Linux and cloud infrastructure components, mainly in Python.
+A hands-on project for rebuilding small Linux and cloud infrastructure components, mostly in Python.
 
 ## Components
 
@@ -8,40 +8,41 @@ A hands-on project for rebuilding small Linux and cloud infrastructure component
 - DNS server
 - Reverse proxy
 - Load balancer
-- Redis clone
+- In-memory cache
 - Container runtime
 
 ## Initial stack
 
-The first version of the stack is planned as:
+The planned first stack is:
 
 ```text
-Client -> DNS -> Load balancer -> HTTP servers -> Redis
+Client -> DNS -> Load balancer -> HTTP servers -> In-memory cache
 ```
 
-Later work will connect the components with integration tests and add failure handling and observability.
+The components will be connected with integration tests after the basic path works. Failure handling and observability come next.
 
 ## Possible additions
 
 | Directory | Description |
 | --- | --- |
-| `service-discovery/` | Register services, send heartbeats, and healthchecks. |
-| `message-queue/` | Support producers and consumers with acknowledgements and retries, similar to a small RabbitMQ or SQS concept. |
-| `object-storage/` | Store and retrieve objects with metadata, checksums, and basic persistence, similar to a small S3. |
-| `metrics-server/` | Expose counters, gauges, and latency data for scraping, similar to a small Prometheus-style system. |
-| `scheduler/` | Assign workloads to available nodes based on their resources, similar to a small Kubernetes scheduler. |
-| `certificate-authority/` | Issue and sign certificates for TLS between services. |
+| `service-discovery/` | Register services, send heartbeats, and run health checks. |
+| `message-queue/` | Support producers and consumers with acknowledgments and retries, similar to a small RabbitMQ or SQS service. |
+| `object-storage/` | Store and retrieve objects with metadata, checksums, and basic persistence. |
+| `metrics-server/` | Expose counters, gauges, and latency data for scraping, similar to a small Prometheus-style service. |
+| `scheduler/` | Assign workloads to nodes based on available resources, similar to a small Kubernetes scheduler. |
+| `certificate-authority/` | Issue and sign certificates for service-to-service TLS. |
 
-## Longer-term stack
+## Later stack
 
-The longer-term stack may look like this:
+Later work may add:
 
 ```text
-HTTP, DNS, reverse proxy, load balancer, Redis, container runtime
+HTTP, DNS, reverse proxy, load balancer, in-memory cache, container runtime
     -> service discovery, message queue, metrics, scheduler
 ```
 
 ## Programming languages
 
 - main: `python`
-- supporting (conceptual for now): `go`, `c`, `rust`, `js`
+- used by components: `go`
+- future experiments: `c`, `rust`

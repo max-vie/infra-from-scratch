@@ -7,10 +7,11 @@ The DNS component's supporting documents live here.
 Start the server from the `dns-server/` directory:
 
 ```bash
-go run server.go
+go run server.go -host 127.0.0.1 -port 8053
 ```
 
-It listens on `127.0.0.1:8053` and resolves `app.local` to `127.0.0.1`.
+It listens on `127.0.0.1:8053` by default. Use `-host 0.0.0.0` for all
+IPv4 interfaces or pass a specific local address.
 
 Query it with:
 

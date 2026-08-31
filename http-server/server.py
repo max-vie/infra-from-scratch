@@ -1,8 +1,9 @@
+import argparse
 import socket
 
 
-# Bind on all local interfaces so the server can accept local or LAN requests.
-HOST, PORT = "", 8088
+# Bind on all IPv4 interfaces so the server can accept local or LAN requests.
+HOST, PORT = "0.0.0.0", 8088
 BUFFER_SIZE = 4096
 MAX_REQUEST_SIZE = 64 * 1024
 SUPPORTED_VERSIONS = {"HTTP/1.0", "HTTP/1.1"}
@@ -12,6 +13,13 @@ ROUTES = {
     "/health": ("200 OK", b"OK\n"),
     "/hello": ("200 OK", b"HELLO WORLD!\n"),
 }
+
+
+def port(value):
+    value = int(value)
+    if not 1 <= value <= 65535:
+        raise argparse.ArgumentTypeError("port must be between 1 and 65535")
+    return value
 
 
 def _is_token(value):
@@ -133,7 +141,7 @@ def serve(host=HOST, port=PORT):
         listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listen_socket.bind((host, port))
         listen_socket.listen(1)
-        print(f"serving HTTP on port {port} ...")
+        print(f"serving HTTP on {host}:{port} ...")
 
         while True:
             client_connection, _ = listen_socket.accept()
@@ -141,5 +149,17 @@ def serve(host=HOST, port=PORT):
                 handle_connection(client_connection)
 
 
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Serve the minimal HTTP application")
+    parser.add_argument("--host", default=HOST)
+    parser.add_argument("--port", type=port, default=PORT)
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    serve(host=args.host, port=args.port)
+
+
 if __name__ == "__main__":
-    serve()
+    main()

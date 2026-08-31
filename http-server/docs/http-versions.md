@@ -3,6 +3,8 @@
 `URL.request()` sends `HTTP/1.0` requests. The server sends `HTTP/1.1`
 responses. The server smoke test sends an `HTTP/1.1` request.
 
+The server accepts `HTTP/1.0` and `HTTP/1.1` request lines.
+
 HTTP/1.0 and HTTP/1.1 interoperate for the features used here. The response
 uses `Content-Length` and `Connection: close`, so the HTTP/1.0 request can read
 it. Persistent connections and chunked transfer encoding need separate

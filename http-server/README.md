@@ -3,6 +3,24 @@
 A small Python implementation of URL parsing, HTTP requests, and a basic
 HTTP server.
 
+## HTTP server MVP
+
+The server listens on port `8088`, reads one request through `\r\n\r\n`, and
+closes the connection after responding. It accepts HTTP/1.0 and HTTP/1.1
+request lines and limits the header block to 64 KiB.
+
+| Request | Response |
+| --- | --- |
+| `GET /` | `200 OK` and `HELLO WORLD!` |
+| `GET /health` | `200 OK` and `OK` |
+| `GET /hello` | `200 OK` and `HELLO WORLD!` |
+| unknown GET route | `404 Not Found` |
+| non-GET method | `405 Method Not Allowed` |
+| malformed, incomplete, oversized, or body-framed request | `400 Bad Request` |
+
+Request bodies, persistent connections, and chunked transfer encoding are not
+implemented yet.
+
 ## Sources
 
 | Source | Use |

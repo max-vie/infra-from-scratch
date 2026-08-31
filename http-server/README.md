@@ -9,6 +9,15 @@ The server listens on port `8088`, reads one request through `\r\n\r\n`, and
 closes the connection after responding. It accepts HTTP/1.0 and HTTP/1.1
 request lines and limits the header block to 64 KiB.
 
+Run it with an explicit listener address when needed:
+
+```bash
+python http-server/server.py --host 127.0.0.1 --port 8088
+```
+
+The default host is `0.0.0.0`, which binds all IPv4 interfaces. Use a
+specific local address or `0.0.0.0` with `--host`.
+
 | Request | Response |
 | --- | --- |
 | `GET /` | `200 OK` and `HELLO WORLD!` |

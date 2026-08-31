@@ -1,3 +1,5 @@
+import contextlib
+import io
 import socket
 import subprocess
 import sys
@@ -9,11 +11,16 @@ from pathlib import Path
 SERVER_DIR = Path(__file__).parents[1]
 sys.path.insert(0, str(SERVER_DIR))
 
-from server import MAX_REQUEST_SIZE, parse_headers, parse_request_line
+from server import MAX_REQUEST_SIZE, parse_args, parse_headers, parse_request_line
 
 
 HOST = "127.0.0.1"
-PORT = 8088
+
+
+def free_port():
+    with socket.socket() as temporary_socket:
+        temporary_socket.bind((HOST, 0))
+        return temporary_socket.getsockname()[1]
 
 
 def wait_for_port(port):
@@ -28,9 +35,9 @@ def wait_for_port(port):
     raise AssertionError(f"nothing listened on {HOST}:{port}")
 
 
-def send_request(parts):
+def send_request(port, parts):
     # Send one request and read until the server closes the connection.
-    with socket.create_connection((HOST, PORT), timeout=2) as connection:
+    with socket.create_connection((HOST, port), timeout=2) as connection:
         for part in parts:
             connection.sendall(part)
         connection.shutdown(socket.SHUT_WR)
@@ -41,7 +48,34 @@ def send_request(parts):
     return bytes(response)
 
 
+def stop_process(process):
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+
+
 class TestRequestParsing(unittest.TestCase):
+    def test_parses_bind_options(self):
+        args = parse_args(["--host", "127.0.0.1", "--port", "18088"])
+
+        self.assertEqual(args.host, "127.0.0.1")
+        self.assertEqual(args.port, 18088)
+
+    def test_defaults_to_wildcard_listener(self):
+        args = parse_args([])
+
+        self.assertEqual(args.host, "0.0.0.0")
+        self.assertEqual(args.port, 8088)
+
+    def test_rejects_invalid_port(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                parse_args(["--port", "0"])
+
     def test_parses_request_line(self):
         self.assertEqual(
             parse_request_line(b"GET /hello HTTP/1.1"),
@@ -83,23 +117,25 @@ class TestServer(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Start one server for the socket-level behavior tests.
+        cls.port = free_port()
         cls.server = subprocess.Popen(
-            [sys.executable, "http-server/server.py"],
+            [
+                sys.executable,
+                "http-server/server.py",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(cls.port),
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        wait_for_port(PORT)
+        wait_for_port(cls.port)
 
     @classmethod
     def tearDownClass(cls):
         # Always stop the server started by this test class.
-        if cls.server.poll() is None:
-            cls.server.terminate()
-            try:
-                cls.server.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                cls.server.kill()
-                cls.server.wait()
+        stop_process(cls.server)
 
     def test_returns_successful_routes(self):
         routes = {
@@ -110,10 +146,11 @@ class TestServer(unittest.TestCase):
         for path, body in routes.items():
             with self.subTest(path=path):
                 response = send_request(
+                    self.port,
                     [
                         f"GET {path} HTTP/1.1\r\n".encode("ascii"),
                         b"Host: app.local\r\n\r\n",
-                    ]
+                    ],
                 )
 
                 self.assertIn(b"HTTP/1.1 200 OK\r\n", response)
@@ -123,6 +160,7 @@ class TestServer(unittest.TestCase):
 
     def test_reads_until_header_terminator(self):
         response = send_request(
+            self.port,
             [
                 b"GET /hello HTTP/1.1\r\nHost: app.local",
                 b"\r\n\r\n",
@@ -134,7 +172,8 @@ class TestServer(unittest.TestCase):
 
     def test_returns_not_found_for_unknown_route(self):
         response = send_request(
-            [b"GET /missing HTTP/1.1\r\nHost: app.local\r\n\r\n"]
+            self.port,
+            [b"GET /missing HTTP/1.1\r\nHost: app.local\r\n\r\n"],
         )
 
         self.assertIn(b"HTTP/1.1 404 Not Found\r\n", response)
@@ -142,7 +181,8 @@ class TestServer(unittest.TestCase):
 
     def test_returns_method_not_allowed_for_non_get(self):
         response = send_request(
-            [b"POST /hello HTTP/1.1\r\nHost: app.local\r\n\r\n"]
+            self.port,
+            [b"POST /hello HTTP/1.1\r\nHost: app.local\r\n\r\n"],
         )
 
         self.assertIn(b"HTTP/1.1 405 Method Not Allowed\r\n", response)
@@ -157,11 +197,14 @@ class TestServer(unittest.TestCase):
         )
         for request in requests:
             with self.subTest(request=request):
-                response = send_request([request])
+                response = send_request(self.port, [request])
                 self.assertIn(b"HTTP/1.1 400 Bad Request\r\n", response)
 
     def test_returns_bad_request_for_incomplete_headers(self):
-        response = send_request([b"GET / HTTP/1.1\r\nHost: app.local\r\n"])
+        response = send_request(
+            self.port,
+            [b"GET / HTTP/1.1\r\nHost: app.local\r\n"],
+        )
 
         self.assertIn(b"HTTP/1.1 400 Bad Request\r\n", response)
 
@@ -172,9 +215,34 @@ class TestServer(unittest.TestCase):
             + b"\r\n\r\n"
         )
 
-        response = send_request([request])
+        response = send_request(self.port, [request])
 
         self.assertIn(b"HTTP/1.1 400 Bad Request\r\n", response)
+
+    def test_binds_wildcard_address(self):
+        port = free_port()
+        server = subprocess.Popen(
+            [
+                sys.executable,
+                "http-server/server.py",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                str(port),
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            wait_for_port(port)
+            response = send_request(
+                port,
+                [b"GET /health HTTP/1.1\r\nHost: app.local\r\n\r\n"],
+            )
+        finally:
+            stop_process(server)
+
+        self.assertIn(b"HTTP/1.1 200 OK\r\n", response)
 
 
 if __name__ == "__main__":

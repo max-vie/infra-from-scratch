@@ -62,11 +62,13 @@ class TestReverseProxy(unittest.TestCase):
         self.processes.append(process)
         return process
 
-    def start_proxy(self, backend_port):
+    def start_proxy(self, backend_port, listen_host=HOST):
         proxy_port = free_port()
         self.start_process(
             sys.executable,
             "reverse-proxy/server.py",
+            "--listen-host",
+            listen_host,
             "--listen-port",
             str(proxy_port),
             "--backend-port",
@@ -74,6 +76,37 @@ class TestReverseProxy(unittest.TestCase):
         )
         wait_for_port(proxy_port)
         return proxy_port
+
+    def test_binds_explicit_listener_addresses(self):
+        for listen_host in ("127.0.0.1", "0.0.0.0"):
+            with self.subTest(listen_host=listen_host):
+                proxy_port = self.start_proxy(free_port(), listen_host)
+                response = self.request(
+                    proxy_port,
+                    b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                )
+
+                self.assertIn(b"HTTP/1.0 502 Bad Gateway", response)
+
+    def test_rejects_invalid_port_configuration(self):
+        for option, value in (
+            ("--listen-port", "0"),
+            ("--backend-port", "65536"),
+            ("--listen-port", "not-a-port"),
+        ):
+            with self.subTest(option=option, value=value):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "reverse-proxy/server.py",
+                        option,
+                        value,
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+
+                self.assertNotEqual(result.returncode, 0)
 
     def request(self, proxy_port, request):
         # Send one request and read until the proxy closes the connection.

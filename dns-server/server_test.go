@@ -80,9 +80,72 @@ func TestMakeResponseUnsupportedType(t *testing.T) {
 	}
 }
 
-func TestMakeResponseRejectsMalformedQuery(t *testing.T) {
-	// A packet shorter than a DNS header should be ignored.
-	if response := makeResponse([]byte{0, 1}); response != nil {
-		t.Fatal("expected malformed query to be rejected")
+func TestMakeResponseRejectsMalformedQueries(t *testing.T) {
+	validQuery := dnsQuery("app.local", typeA)
+	zeroQuestions := append([]byte(nil), validQuery...)
+	binary.BigEndian.PutUint16(zeroQuestions[4:6], 0)
+	twoQuestions := append([]byte(nil), validQuery...)
+	binary.BigEndian.PutUint16(twoQuestions[4:6], 2)
+	responsePacket := append([]byte(nil), validQuery...)
+	responsePacket[2] |= 0x80
+	compressedName := append([]byte(nil), validQuery...)
+	compressedName[headerSize] = 0xc0
+	longLabel := append([]byte(nil), validQuery...)
+	longLabel[headerSize] = 20
+
+	cases := []struct {
+		name  string
+		query []byte
+	}{
+		{name: "short header", query: []byte{0, 1}},
+		{name: "zero questions", query: zeroQuestions},
+		{name: "multiple questions", query: twoQuestions},
+		{name: "response packet", query: responsePacket},
+		{name: "compressed name", query: compressedName},
+		{name: "label exceeds packet", query: longLabel},
+		{name: "missing name terminator", query: validQuery[:headerSize+10]},
+		{name: "truncated question", query: validQuery[:len(validQuery)-1]},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if response := makeResponse(testCase.query); response != nil {
+				t.Fatal("expected malformed query to be rejected")
+			}
+		})
+	}
+}
+
+func TestListenAddress(t *testing.T) {
+	cases := []struct {
+		name      string
+		host      string
+		port      int
+		want      string
+		wantError bool
+	}{
+		{name: "loopback", host: "127.0.0.1", port: 8053, want: "127.0.0.1:8053"},
+		{name: "wildcard", host: "0.0.0.0", port: 8053, want: "0.0.0.0:8053"},
+		{name: "empty host", host: "", port: 8053, want: ":8053"},
+		{name: "port too low", host: "127.0.0.1", port: 0, wantError: true},
+		{name: "port too high", host: "127.0.0.1", port: 65536, wantError: true},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			address, err := listenAddress(testCase.host, testCase.port)
+			if testCase.wantError {
+				if err == nil {
+					t.Fatal("expected invalid address configuration to fail")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("listenAddress() error = %v", err)
+			}
+			if address != testCase.want {
+				t.Fatalf("listenAddress() = %q, want %q", address, testCase.want)
+			}
+		})
 	}
 }

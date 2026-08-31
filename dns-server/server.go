@@ -3,28 +3,40 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"flag"
 	"fmt"
 	"net"
+	"strconv"
 )
 
 const (
-	listenAddress = "127.0.0.1:8053"
-	headerSize    = 12
-	typeA         = 1
-	classIN       = 1
+	defaultListenHost = "127.0.0.1"
+	defaultListenPort = 8053
+	headerSize        = 12
+	typeA             = 1
+	classIN           = 1
 )
 
 var recordName = []byte("\x03app\x05local\x00")
 
 func main() {
+	host := flag.String("host", defaultListenHost, "address to bind")
+	port := flag.Int("port", defaultListenPort, "port to bind")
+	flag.Parse()
+
+	address, err := listenAddress(*host, *port)
+	if err != nil {
+		panic(err)
+	}
+
 	// Bind a UDP socket for local DNS queries.
-	server, err := net.ListenPacket("udp4", listenAddress)
+	server, err := net.ListenPacket("udp4", address)
 	if err != nil {
 		panic(err)
 	}
 	defer server.Close()
 
-	fmt.Printf("serving DNS on %s ...\n", listenAddress)
+	fmt.Printf("serving DNS on %s ...\n", address)
 	buffer := make([]byte, 512)
 
 	for {
@@ -40,6 +52,13 @@ func main() {
 		}
 		_, _ = server.WriteTo(response, client)
 	}
+}
+
+func listenAddress(host string, port int) (string, error) {
+	if port < 1 || port > 65535 {
+		return "", fmt.Errorf("port must be between 1 and 65535")
+	}
+	return net.JoinHostPort(host, strconv.Itoa(port)), nil
 }
 
 func makeResponse(query []byte) []byte {

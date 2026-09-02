@@ -11,15 +11,24 @@ A hands-on project for rebuilding small Linux and cloud infrastructure component
 - In-memory cache
 - Container runtime
 
-## Initial stack
+## Current integrated path
 
-The planned first stack is:
+The first working path is:
 
 ```text
-Client -> DNS -> Load balancer -> HTTP servers -> In-memory cache
+Client -> DNS -> Load balancer -> HTTP servers
 ```
 
-The components will be connected with integration tests after the basic path works. Failure handling and observability come next.
+The integration smoke test starts the DNS server, two HTTP servers, and the
+load balancer, then sends requests through the resolved address.
+
+The in-memory cache and container runtime remain planned components.
+
+Run the integration test from the project root:
+
+```bash
+python -m unittest discover -s integration-tests -v
+```
 
 ## Possible additions
 

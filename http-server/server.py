@@ -1,6 +1,8 @@
 import argparse
 import socket
 
+from application import Request, respond
+
 
 # Bind on all IPv4 interfaces so the server can accept local or LAN requests.
 HOST, PORT = "0.0.0.0", 8088
@@ -8,11 +10,6 @@ BUFFER_SIZE = 4096
 MAX_REQUEST_SIZE = 64 * 1024
 SUPPORTED_VERSIONS = {"HTTP/1.0", "HTTP/1.1"}
 TOKEN_SYMBOLS = "!#$%&'*+-.^_`|~"
-ROUTES = {
-    "/": ("200 OK", b"HELLO WORLD!\n"),
-    "/health": ("200 OK", b"OK\n"),
-    "/hello": ("200 OK", b"HELLO WORLD!\n"),
-}
 
 
 def port(value):
@@ -98,14 +95,6 @@ def read_request(connection):
     return bytes(request[:header_end])
 
 
-def route(method, target):
-    # Select the small set of routes supported by this MVP.
-    if method != "GET":
-        return "405 Method Not Allowed", b"Method Not Allowed\n", (("Allow", "GET"),)
-    status, body = ROUTES.get(target, ("404 Not Found", b"Not Found\n"))
-    return status, body, ()
-
-
 def build_response(status, body, headers=()):
     # Construct a close-delimited HTTP response with an explicit body length.
     response_headers = [
@@ -125,7 +114,12 @@ def handle_connection(connection):
         method, target, _version, headers = parse_request(read_request(connection))
         if {"content-length", "transfer-encoding"} & headers.keys():
             raise ValueError("request bodies are not supported")
-        response = build_response(*route(method, target))
+        application_response = respond(Request(method, target))
+        response = build_response(
+            application_response.status,
+            application_response.body,
+            application_response.headers,
+        )
     except (OSError, ValueError):
         response = build_response("400 Bad Request", b"Bad Request\n")
 

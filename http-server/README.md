@@ -3,6 +3,17 @@
 A small Python implementation of URL parsing, HTTP requests, and a basic
 HTTP server.
 
+## HTTP client
+
+`URL(address).request()` sends a `GET` request and returns a `Response` value
+with the HTTP version, numeric status, reason phrase, case-insensitive headers,
+and the raw response body as bytes. Well-formed error responses are returned
+like successful responses.
+
+The client reads supported responses until the connection closes. It raises
+`NotImplementedError` for `Transfer-Encoding` and `Content-Encoding`; chunked
+responses and persistent connections are not implemented.
+
 ## HTTP server MVP
 
 The server listens on port `8088`, reads one request through `\r\n\r\n`, and

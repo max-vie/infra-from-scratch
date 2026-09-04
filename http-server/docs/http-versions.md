@@ -7,9 +7,12 @@ The server accepts `HTTP/1.0` and `HTTP/1.1` request lines.
 
 HTTP/1.0 and HTTP/1.1 interoperate for the features used here. The response
 uses `Content-Length` and `Connection: close`, so the HTTP/1.0 request can read
-it. Persistent connections and chunked transfer encoding need separate
-handling. `URL.request()` raises `NotImplementedError` for responses that
-include `Transfer-Encoding` or `Content-Encoding`.
+it. `URL.request()` returns the parsed version, status, reason phrase, headers,
+and raw body bytes. It reads the body until the connection closes.
+
+Persistent connections and chunked transfer encoding need separate handling.
+`URL.request()` raises `NotImplementedError` for responses that include
+`Transfer-Encoding` or `Content-Encoding`.
 
 The first reverse-proxy version should use HTTP/1.0 requests, close each
 connection, and avoid chunked transfer encoding and persistent connections.

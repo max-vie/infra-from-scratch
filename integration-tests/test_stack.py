@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 HTTP_SERVER = ROOT / "http-server" / "server.py"
 LOAD_BALANCER = ROOT / "load-balancer" / "server.py"
+REVERSE_PROXY = ROOT / "reverse-proxy" / "server.py"
 DNS_DIR = ROOT / "dns-server"
 HOST = "127.0.0.1"
 DNS_TRANSACTION_ID = 0x1234
@@ -143,7 +144,7 @@ class TestStack(unittest.TestCase):
                     process.kill()
                     process.wait()
 
-    def test_dns_load_balancer_and_http_servers_work_together(self):
+    def start_http_dns_load_balancer(self):
         backend_ports = []
         for _ in range(2):
             backend_port = free_port()
@@ -159,7 +160,7 @@ class TestStack(unittest.TestCase):
             wait_for_tcp_port(backend, backend_port)
 
         dns_port = free_port(socket.SOCK_DGRAM)
-        dns = self.start_process(
+        self.start_process(
             "go",
             "run",
             "server.go",
@@ -186,13 +187,40 @@ class TestStack(unittest.TestCase):
         load_balancer = self.start_process(*command)
         wait_for_tcp_port(load_balancer, load_balancer_port)
 
+        return resolved_host, load_balancer_port
+
+    def test_dns_load_balancer_and_http_servers_work_together(self):
+        resolved_host, load_balancer_port = self.start_http_dns_load_balancer()
+
         responses = [
-            send_request(resolved_host, load_balancer_port)
-            for _ in backend_ports
+            send_request(resolved_host, load_balancer_port) for _ in range(2)
         ]
         for response in responses:
             self.assertIn(b"HTTP/1.1 200 OK\r\n", response)
             self.assertIn(b"OK\n", response)
+
+    def test_dns_reverse_proxy_load_balancer_and_http_servers_work_together(self):
+        resolved_host, load_balancer_port = self.start_http_dns_load_balancer()
+
+        proxy_port = free_port()
+        proxy = self.start_process(
+            sys.executable,
+            str(REVERSE_PROXY),
+            "--listen-host",
+            HOST,
+            "--listen-port",
+            str(proxy_port),
+            "--backend-host",
+            HOST,
+            "--backend-port",
+            str(load_balancer_port),
+        )
+        wait_for_tcp_port(proxy, proxy_port)
+
+        response = send_request(resolved_host, proxy_port)
+
+        self.assertIn(b"HTTP/1.1 200 OK\r\n", response)
+        self.assertIn(b"OK\n", response)
 
 
 if __name__ == "__main__":

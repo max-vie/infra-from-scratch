@@ -22,7 +22,8 @@ Client -> DNS -> Reverse proxy -> Load balancer -> HTTP servers
 The integration smoke tests cover both the direct load-balancer path and the
 full path through the reverse proxy using the resolved address.
 
-The in-memory cache and container runtime remain planned components.
+The in-memory cache is available as a standalone component. The container
+runtime remains planned.
 
 Run the integration test from the project root:
 
@@ -53,5 +54,5 @@ HTTP, DNS, reverse proxy, load balancer, in-memory cache, container runtime
 ## Programming languages
 
 - main: `python`
-- used by components: `go`
-- future experiments: `c`, `rust`
+- used by components: `go`, `c`
+- future experiments: `rust`

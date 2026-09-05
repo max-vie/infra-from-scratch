@@ -170,7 +170,7 @@ class TestLoadBalancer(unittest.TestCase):
         self.assertIn(b"backend-b", responses[1])
         self.assertIn(b"backend-a", responses[2])
 
-    def test_moves_to_next_backend_after_connection_failure(self):
+    def test_fails_over_to_other_backend_on_connection_failure(self):
         live_backend = self.start_backend("backend-b")
         unavailable_backend = (HOST, free_port())
         load_balancer_port = self.start_load_balancer(
@@ -178,11 +178,20 @@ class TestLoadBalancer(unittest.TestCase):
         )
         request = b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
 
-        failed_response = self.request(load_balancer_port, request)
-        live_response = self.request(load_balancer_port, request)
+        first_response = self.request(load_balancer_port, request)
+        second_response = self.request(load_balancer_port, request)
 
-        self.assertIn(b"HTTP/1.0 502 Bad Gateway", failed_response)
-        self.assertIn(b"backend-b", live_response)
+        self.assertIn(b"backend-b", first_response)
+        self.assertIn(b"backend-b", second_response)
+
+    def test_returns_bad_gateway_when_both_backends_unavailable(self):
+        backends = [(HOST, free_port()), (HOST, free_port())]
+        load_balancer_port = self.start_load_balancer(backends)
+        request = b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+
+        response = self.request(load_balancer_port, request)
+
+        self.assertIn(b"HTTP/1.0 502 Bad Gateway", response)
 
     def test_rejects_invalid_requests_before_backend_selection(self):
         backends = [(HOST, free_port()), (HOST, free_port())]

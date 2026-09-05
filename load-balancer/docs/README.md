@@ -22,8 +22,10 @@ python load-balancer/server.py \
 ```
 
 It sends successive valid requests to the two backends in alternating order.
-It returns `502 Bad Gateway` when the selected backend cannot be reached. It
-does not retry the request or remove the backend from the list.
+When the selected backend cannot be reached before response bytes start, it
+tries the other backend once in the same client connection. It returns `502
+Bad Gateway` only when both backends fail. It does not remove backends from
+the list or run health checks.
 
 ## Test
 

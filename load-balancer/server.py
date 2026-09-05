@@ -87,24 +87,31 @@ def handle_connection(client, backend_addresses, backend_index):
         send_error(client, "400 Bad Request", b"Bad Request\n")
         return backend_index
 
-    selected_backend = backend_addresses[backend_index]
-    next_backend_index = (backend_index + 1) % len(backend_addresses)
-    response_started = False
-    try:
-        # Forward the request and relay the response until the backend closes.
-        with socket.create_connection(
-            selected_backend,
-            timeout=SOCKET_TIMEOUT,
-        ) as backend_connection:
-            backend_connection.sendall(request)
-            backend_connection.shutdown(socket.SHUT_WR)
+    initial_index = backend_index
+    next_backend_index = (initial_index + 1) % len(backend_addresses)
+    for offset in range(len(backend_addresses)):
+        selected_backend = backend_addresses[(initial_index + offset) % len(backend_addresses)]
+        response_started = False
+        try:
+            # Forward the request and relay the response until the backend closes.
+            with socket.create_connection(
+                selected_backend,
+                timeout=SOCKET_TIMEOUT,
+            ) as backend_connection:
+                backend_connection.sendall(request)
+                backend_connection.shutdown(socket.SHUT_WR)
 
-            while chunk := backend_connection.recv(BUFFER_SIZE):
-                response_started = True
-                client.sendall(chunk)
-    except OSError:
-        if not response_started:
-            send_error(client, "502 Bad Gateway", b"Bad Gateway\n")
+                while chunk := backend_connection.recv(BUFFER_SIZE):
+                    response_started = True
+                    client.sendall(chunk)
+            return next_backend_index
+        except OSError:
+            if response_started:
+                # Response bytes already reached the client; do not retry
+                # or append another error.
+                return next_backend_index
+            if offset == len(backend_addresses) - 1:
+                send_error(client, "502 Bad Gateway", b"Bad Gateway\n")
 
     return next_backend_index
 

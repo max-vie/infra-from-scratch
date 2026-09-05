@@ -16,11 +16,11 @@ A hands-on project for rebuilding small Linux and cloud infrastructure component
 The first working path is:
 
 ```text
-Client -> DNS -> Load balancer -> HTTP servers
+Client -> DNS -> Reverse proxy -> Load balancer -> HTTP servers
 ```
 
-The integration smoke test starts the DNS server, two HTTP servers, and the
-load balancer, then sends requests through the resolved address.
+The integration smoke tests cover both the direct load-balancer path and the
+full path through the reverse proxy using the resolved address.
 
 The in-memory cache and container runtime remain planned components.
 

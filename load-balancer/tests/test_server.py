@@ -1,20 +1,13 @@
-import contextlib
-import io
 import socket
 import subprocess
 import sys
 import time
 import unittest
-from pathlib import Path
-
-
-SERVER_DIR = Path(__file__).parents[1]
-sys.path.insert(0, str(SERVER_DIR))
-
-from server import MAX_REQUEST_SIZE, parse_args
 
 
 HOST = "127.0.0.1"
+MAX_REQUEST_SIZE = 64 * 1024
+LOAD_BALANCER_DIR = "load-balancer"
 BACKEND_SCRIPT = r"""
 import socket
 import sys
@@ -91,9 +84,10 @@ class TestLoadBalancer(unittest.TestCase):
     def setUp(self):
         self.processes = []
 
-    def start_process(self, *command):
+    def start_process(self, command, cwd):
         process = subprocess.Popen(
             command,
+            cwd=cwd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -103,11 +97,8 @@ class TestLoadBalancer(unittest.TestCase):
     def start_backend(self, body):
         backend_port = free_port()
         self.start_process(
-            sys.executable,
-            "-c",
-            BACKEND_SCRIPT,
-            str(backend_port),
-            body,
+            [sys.executable, "-c", BACKEND_SCRIPT, str(backend_port), body],
+            cwd=".",
         )
         wait_for_port(backend_port)
         return HOST, backend_port
@@ -115,16 +106,13 @@ class TestLoadBalancer(unittest.TestCase):
     def start_load_balancer(self, backends):
         load_balancer_port = free_port()
         command = [
-            sys.executable,
-            "load-balancer/server.py",
-            "--listen-host",
-            HOST,
-            "--listen-port",
-            str(load_balancer_port),
+            "go", "run", "server.go",
+            "-listen-host", HOST,
+            "-listen-port", str(load_balancer_port),
         ]
         for host, port in backends:
-            command.extend(("--backend", f"{host}:{port}"))
-        self.start_process(*command)
+            command.extend(("-backend", f"{host}:{port}"))
+        self.start_process(command, cwd=LOAD_BALANCER_DIR)
         wait_for_port(load_balancer_port)
         return load_balancer_port
 
@@ -214,31 +202,34 @@ class TestLoadBalancer(unittest.TestCase):
     def test_rejects_invalid_configuration(self):
         cases = (
             [],
-            ["--backend", "127.0.0.1:8088"],
-            ["--backend", "127.0.0.1:8088", "--backend", "bad"],
+            ["-backend", "127.0.0.1:8088"],
+            ["-backend", "127.0.0.1:8088", "-backend", "bad"],
             [
-                "--listen-port",
+                "-listen-port",
                 "0",
-                "--backend",
+                "-backend",
                 "127.0.0.1:8088",
-                "--backend",
+                "-backend",
                 "127.0.0.1:8089",
             ],
         )
 
         for arguments in cases:
             with self.subTest(arguments=arguments):
-                with contextlib.redirect_stderr(io.StringIO()):
-                    with self.assertRaises(SystemExit):
-                        parse_args(arguments)
+                result = subprocess.run(
+                    ["go", "run", "server.go"] + arguments,
+                    cwd=LOAD_BALANCER_DIR,
+                    capture_output=True,
+                    text=True,
+                )
+
+                self.assertNotEqual(result.returncode, 0)
 
     def test_does_not_append_bad_gateway_after_partial_response(self):
         backend_port = free_port()
         self.start_process(
-            sys.executable,
-            "-c",
-            PARTIAL_BACKEND_SCRIPT,
-            str(backend_port),
+            [sys.executable, "-c", PARTIAL_BACKEND_SCRIPT, str(backend_port)],
+            cwd=".",
         )
         wait_for_port(backend_port)
         load_balancer_port = self.start_load_balancer(

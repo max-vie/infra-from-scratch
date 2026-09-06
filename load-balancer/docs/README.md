@@ -11,14 +11,14 @@ python http-server/server.py --host 127.0.0.1 --port 8088
 python http-server/server.py --host 127.0.0.1 --port 8089
 ```
 
-Start the load balancer in another terminal:
+Start the load balancer in another terminal, from `load-balancer/`:
 
 ```bash
-python load-balancer/server.py \
-  --listen-host 127.0.0.1 \
-  --listen-port 8000 \
-  --backend 127.0.0.1:8088 \
-  --backend 127.0.0.1:8089
+go run server.go \
+  -listen-host 127.0.0.1 \
+  -listen-port 8000 \
+  -backend 127.0.0.1:8088 \
+  -backend 127.0.0.1:8089
 ```
 
 It sends successive valid requests to the two backends in alternating order.
@@ -33,7 +33,6 @@ Run the load balancer tests from the project root:
 
 ```bash
 python -m unittest discover -s load-balancer/tests -v
-python -m py_compile load-balancer/server.py
 ```
 
 ## ADRs

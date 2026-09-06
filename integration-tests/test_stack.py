@@ -8,9 +8,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).parents[1]
-HTTP_SERVER = ROOT / "http-server" / "server.py"
-LOAD_BALANCER = ROOT / "load-balancer" / "server.py"
-REVERSE_PROXY = ROOT / "reverse-proxy" / "server.py"
+HTTP_DIR = ROOT / "http-server"
+LOAD_BALANCER_DIR = ROOT / "load-balancer"
+REVERSE_PROXY_DIR = ROOT / "reverse-proxy"
 DNS_DIR = ROOT / "dns-server"
 HOST = "127.0.0.1"
 DNS_TRANSACTION_ID = 0x1234
@@ -151,11 +151,12 @@ class TestStack(unittest.TestCase):
             backend_ports.append(backend_port)
             backend = self.start_process(
                 sys.executable,
-                str(HTTP_SERVER),
+                "server.py",
                 "--host",
                 HOST,
                 "--port",
                 str(backend_port),
+                cwd=HTTP_DIR,
             )
             wait_for_tcp_port(backend, backend_port)
 
@@ -175,16 +176,17 @@ class TestStack(unittest.TestCase):
 
         load_balancer_port = free_port()
         command = [
-            sys.executable,
-            str(LOAD_BALANCER),
-            "--listen-host",
+            "go",
+            "run",
+            "server.go",
+            "-listen-host",
             HOST,
-            "--listen-port",
+            "-listen-port",
             str(load_balancer_port),
         ]
         for backend_port in backend_ports:
-            command.extend(("--backend", f"{HOST}:{backend_port}"))
-        load_balancer = self.start_process(*command)
+            command.extend(("-backend", f"{HOST}:{backend_port}"))
+        load_balancer = self.start_process(*command, cwd=LOAD_BALANCER_DIR)
         wait_for_tcp_port(load_balancer, load_balancer_port)
 
         return resolved_host, load_balancer_port
@@ -204,16 +206,18 @@ class TestStack(unittest.TestCase):
 
         proxy_port = free_port()
         proxy = self.start_process(
-            sys.executable,
-            str(REVERSE_PROXY),
-            "--listen-host",
+            "go",
+            "run",
+            "server.go",
+            "-listen-host",
             HOST,
-            "--listen-port",
+            "-listen-port",
             str(proxy_port),
-            "--backend-host",
+            "-backend-host",
             HOST,
-            "--backend-port",
+            "-backend-port",
             str(load_balancer_port),
+            cwd=REVERSE_PROXY_DIR,
         )
         wait_for_tcp_port(proxy, proxy_port)
 

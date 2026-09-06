@@ -53,9 +53,10 @@ class TestReverseProxy(unittest.TestCase):
     def setUp(self):
         self.processes = []
 
-    def start_process(self, *command):
+    def start_process(self, command, cwd):
         process = subprocess.Popen(
             command,
+            cwd=cwd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -65,14 +66,13 @@ class TestReverseProxy(unittest.TestCase):
     def start_proxy(self, backend_port, listen_host=HOST):
         proxy_port = free_port()
         self.start_process(
-            sys.executable,
-            "reverse-proxy/server.py",
-            "--listen-host",
-            listen_host,
-            "--listen-port",
-            str(proxy_port),
-            "--backend-port",
-            str(backend_port),
+            [
+                "go", "run", "server.go",
+                "-listen-host", listen_host,
+                "-listen-port", str(proxy_port),
+                "-backend-port", str(backend_port),
+            ],
+            cwd="reverse-proxy",
         )
         wait_for_port(proxy_port)
         return proxy_port
@@ -97,11 +97,11 @@ class TestReverseProxy(unittest.TestCase):
             with self.subTest(option=option, value=value):
                 result = subprocess.run(
                     [
-                        sys.executable,
-                        "reverse-proxy/server.py",
-                        option,
+                        "go", "run", "server.go",
+                        option.replace("--", "-", 1),
                         value,
                     ],
+                    cwd="reverse-proxy",
                     capture_output=True,
                     text=True,
                 )
@@ -132,7 +132,10 @@ class TestReverseProxy(unittest.TestCase):
 
     def test_forwards_request_to_backend(self):
         # Use the existing HTTP server as the backend.
-        self.start_process(sys.executable, "http-server/server.py")
+        self.start_process(
+            [sys.executable, "server.py"],
+            cwd="http-server",
+        )
         wait_for_port(BACKEND_PORT)
         proxy_port = self.start_proxy(BACKEND_PORT)
 
@@ -195,10 +198,8 @@ class TestReverseProxy(unittest.TestCase):
     def test_does_not_append_bad_gateway_after_partial_response(self):
         backend_port = free_port()
         self.start_process(
-            sys.executable,
-            "-c",
-            PARTIAL_BACKEND_SCRIPT,
-            str(backend_port),
+            [sys.executable, "-c", PARTIAL_BACKEND_SCRIPT, str(backend_port)],
+            cwd=".",
         )
         wait_for_port(backend_port)
         proxy_port = self.start_proxy(backend_port)

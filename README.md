@@ -1,6 +1,6 @@
 # infra-from-scratch
 
-A hands-on project for rebuilding small Linux and cloud infrastructure components, mostly in Python.
+A hands-on project for rebuilding small Linux and cloud infrastructure components in Go, C, and Python.
 
 ## Components
 
@@ -53,6 +53,11 @@ HTTP, DNS, reverse proxy, load balancer, in-memory cache, container runtime
 
 ## Programming languages
 
-- main: `python`
-- used by components: `go`, `c`
-- future experiments: `rust`
+The final mapping assigns one language per component:
+
+- Go (primary): DNS server, reverse proxy, load balancer, and the planned
+  service discovery, message queue, object storage, metrics server,
+  scheduler, and certificate authority.
+- C (Linux/systems depth): in-memory cache and the planned container runtime.
+- Python (fundamentals/automation): HTTP server, HTTP client, and all test
+  harnesses.

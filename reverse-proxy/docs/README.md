@@ -13,19 +13,19 @@ python http-server/server.py
 In another terminal, start the reverse proxy:
 
 ```bash
-python reverse-proxy/server.py
+go run server.go
 ```
 
-The proxy listens on `127.0.0.1:8080` and forwards to
-`127.0.0.1:8088` by default. Use `--help` to see the listener and backend
+from `reverse-proxy/`. The proxy listens on `127.0.0.1:8080` and forwards to
+`127.0.0.1:8088` by default. Use `-help` to see the listener and backend
 options.
 
 ## Test
 
-Check the file syntax with:
+Run the reverse proxy tests from the project root:
 
 ```bash
-python -m py_compile reverse-proxy/server.py
+python -m unittest discover -s reverse-proxy/tests -v
 ```
 
 The forwarding path should return the backend response. An unavailable

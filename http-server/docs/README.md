@@ -1,17 +1,10 @@
-# Documentation
+# HTTP documentation
 
-The HTTP component's supporting documents live here.
+- [`http-versions.md`](http-versions.md) describes the supported HTTP versions
+  and compatibility boundaries.
+- [`adr/001-use-unittest-for-initial-tests.md`](adr/001-use-unittest-for-initial-tests.md)
+  explains the test framework choice.
+- [`adr/002-separate-application-routing-from-transport.md`](adr/002-separate-application-routing-from-transport.md)
+  separates application behavior from socket transport.
 
-## Structure
-
-- [`http-versions.md`](http-versions.md) describes the HTTP versions used by
-  the component and their compatibility boundary.
-- [`adr/`](adr/) contains Architecture Decision Records.
-
-ADR filenames use a zero-padded number and lowercase slug, for example:
-
-```text
-adr/001-short-description.md
-```
-
-Keep documentation concise and record the decisions, behavior, and context that future changes should preserve.
+See the [component README](../README.md) for behavior, run, and test commands.

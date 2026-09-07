@@ -1,63 +1,102 @@
-# infra-from-scratch
+# Infra from Scratch
 
-A hands-on project for rebuilding small Linux and cloud infrastructure components in Go, C, and Python.
+[![Tests](https://github.com/max-vie/infra-from-scratch/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/max-vie/infra-from-scratch/actions/workflows/tests.yml)
+
+A systems design project that builds a small networked service stack from
+scratch.
+
+The components use raw sockets, manual protocol parsing, language standard
+libraries, and POSIX interfaces. The goal is to understand how infrastructure
+works across process and protocol boundaries, not to replace production
+software.
+
+## Working system
+
+The integration suite starts a DNS server, reverse proxy, load balancer, and
+two HTTP servers. Its client resolves `app.local` and sends an HTTP request
+through the complete path:
+
+```mermaid
+sequenceDiagram
+    participant Client as Integration test client
+    participant DNS as DNS server
+    participant Proxy as Reverse proxy
+    participant Balancer as Load balancer
+    participant Backend as HTTP server
+
+    Client->>DNS: Resolve app.local
+    DNS-->>Client: 127.0.0.1
+    Client->>Proxy: GET /health
+    Proxy->>Balancer: Forward request
+    Balancer->>Backend: Select backend
+    Backend-->>Balancer: 200 OK
+    Balancer-->>Proxy: Relay response
+    Proxy-->>Client: Relay response
+```
+
+The custom HTTP client and in-memory cache also work, but they are tested as
+standalone components and are not part of this integrated path.
 
 ## Components
 
-- HTTP server
-- DNS server
-- Reverse proxy
-- Load balancer
-- In-memory cache
-- Container runtime
+| Component | Language | State | Focus |
+| --- | --- | --- | --- |
+| [HTTP client and server](http-server/) | Python | Working | URL parsing, HTTP messages, sockets, and application routing |
+| [DNS server](dns-server/) | Go | Working | UDP, binary message parsing, and DNS records |
+| [Reverse proxy](reverse-proxy/) | Go | Working | Concurrent clients, request forwarding, and gateway failures |
+| [Load balancer](load-balancer/) | Go | Working | Round-robin selection and backend failover |
+| [In-memory cache](in-mem-cache/) | C | Working, standalone | TCP text protocol, bounded storage, and lazy expiry |
+| Container runtime | C | Planned | Linux process and filesystem isolation |
 
-## Current integrated path
+Each component owns its source, tests, documentation, and architecture
+decisions. Cross-component decisions live in [`docs/`](docs/).
 
-The first working path is:
+## Run the integrated path
 
-```text
-Client -> DNS -> Reverse proxy -> Load balancer -> HTTP servers
-```
-
-The integration smoke tests cover both the direct load-balancer path and the
-full path through the reverse proxy using the resolved address.
-
-The in-memory cache is available as a standalone component. The container
-runtime remains planned.
-
-Run the integration test from the project root:
+You need Python 3 and Go. No package installation is required.
 
 ```bash
+git clone https://github.com/max-vie/infra-from-scratch.git
+cd infra-from-scratch
 python -m unittest discover -s integration-tests -v
 ```
 
-## Possible additions
+The test starts every service on temporary local ports, sends requests through
+the stack, and shuts the processes down afterward.
 
-| Directory | Description |
-| --- | --- |
-| `service-discovery/` | Register services, send heartbeats, and run health checks. |
-| `message-queue/` | Support producers and consumers with acknowledgments and retries, similar to a small RabbitMQ or SQS service. |
-| `object-storage/` | Store and retrieve objects with metadata, checksums, and basic persistence. |
-| `metrics-server/` | Expose counters, gauges, and latency data for scraping, similar to a small Prometheus-style service. |
-| `scheduler/` | Assign workloads to nodes based on available resources, similar to a small Kubernetes scheduler. |
-| `certificate-authority/` | Issue and sign certificates for service-to-service TLS. |
+GCC with C11 support is also required to build and test the in-memory cache.
+See the component READMEs for individual run commands and supported behavior.
 
-## Later stack
+## Validate the repository
 
-Later work may add:
+Run the socket-based suites sequentially:
 
-```text
-HTTP, DNS, reverse proxy, load balancer, in-memory cache, container runtime
-    -> service discovery, message queue, metrics, scheduler
+```bash
+python -m unittest discover -s http-server/tests -v
+python -m unittest discover -s reverse-proxy/tests -v
+python -m unittest discover -s load-balancer/tests -v
+python -m unittest discover -s in-mem-cache/tests -v
+python -m py_compile http-server/server.py http-server/client.py
+(cd dns-server && go test server.go server_test.go)
+python -m unittest discover -s integration-tests -v
 ```
 
-## Programming languages
+The same checks run in GitHub Actions for pull requests and pushes to `main`.
 
-The final mapping assigns one language per component:
+## Boundaries
 
-- Go (primary): DNS server, reverse proxy, load balancer, and the planned
-  service discovery, message queue, object storage, metrics server,
-  scheduler, and certificate authority.
-- C (Linux/systems depth): in-memory cache and the planned container runtime.
-- Python (fundamentals/automation): HTTP server, HTTP client, and all test
-  harnesses.
+This is a learning project with deliberately small interfaces. The HTTP path
+does not support TLS, request bodies, persistent connections, or chunked
+transfer encoding. The DNS server owns one local record, the load balancer has
+two fixed backends, and the cache has no persistence or authentication.
+
+Possible next steps include connecting the custom client and cache to the
+tested path, building the container runtime, and exploring service discovery
+and observability. These are directions, not release commitments.
+
+## Feedback and license
+
+Focused issues and pull requests are welcome. Read
+[`CONTRIBUTING.md`](CONTRIBUTING.md) before proposing a larger change.
+
+The project is available under the [MIT License](LICENSE).

@@ -1,33 +1,17 @@
-# http-server
+# HTTP client and server
 
-A small Python implementation of URL parsing, HTTP requests, and a basic
-HTTP server.
+A small Python implementation of URL parsing, HTTP requests, HTTP transport,
+and application routing. It uses the standard library and sends protocol bytes
+over TCP sockets.
 
-## HTTP client
+## Behavior
 
-`URL(address).request()` sends a `GET` request and returns a `Response` value
-with the HTTP version, numeric status, reason phrase, case-insensitive headers,
-and the raw response body as bytes. Well-formed error responses are returned
-like successful responses.
+`URL(address).request()` sends a `GET` request and returns a `Response` with the
+HTTP version, numeric status, reason phrase, case-insensitive headers, and raw
+body bytes. Well-formed error responses are returned like successful responses.
 
-The client reads supported responses until the connection closes. It raises
-`NotImplementedError` for `Transfer-Encoding` and `Content-Encoding`; chunked
-responses and persistent connections are not implemented.
-
-## HTTP server MVP
-
-The server listens on port `8088`, reads one request through `\r\n\r\n`, and
-closes the connection after responding. It accepts HTTP/1.0 and HTTP/1.1
-request lines and limits the header block to 64 KiB.
-
-Run it with an explicit listener address when needed:
-
-```bash
-python http-server/server.py --host 127.0.0.1 --port 8088
-```
-
-The default host is `0.0.0.0`, which binds all IPv4 interfaces. Use a
-specific local address or `0.0.0.0` with `--host`.
+The server reads one request through `\r\n\r\n`, limits the header block to 64
+KiB, and closes the connection after responding.
 
 | Request | Response |
 | --- | --- |
@@ -38,8 +22,38 @@ specific local address or `0.0.0.0` with `--host`.
 | non-GET method | `405 Method Not Allowed` |
 | malformed, incomplete, oversized, or body-framed request | `400 Bad Request` |
 
-Request bodies, persistent connections, and chunked transfer encoding are not
-implemented yet.
+The client and server do not implement HTTPS, request bodies, persistent
+connections, chunked transfer encoding, or content encoding.
+
+## Run
+
+Start the server from the project root:
+
+```bash
+python http-server/server.py --host 127.0.0.1 --port 8088
+```
+
+In another terminal, send a request with the custom client:
+
+```bash
+python http-server/client.py http://127.0.0.1:8088/health
+```
+
+The server defaults to `0.0.0.0:8088`, which binds all IPv4 interfaces. Pass a
+specific local address with `--host` when the server should remain local.
+
+## Test
+
+```bash
+python -m unittest discover -s http-server/tests -v
+python -m py_compile http-server/server.py http-server/client.py
+```
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [HTTP version boundaries](docs/http-versions.md)
+- [Architecture decisions](docs/adr/)
 
 ## Sources
 

@@ -1,7 +1,50 @@
-# load-balancer
+# Load balancer
 
-A small Go load balancer that forwards one HTTP request to one of two
-configured backends in round-robin order.
+A small Go load balancer that sends HTTP requests to two fixed backends in
+round-robin order.
+
+## Behavior
+
+The load balancer validates one header-terminated request before selecting a
+backend. Successive valid requests alternate between the two backends. If the
+selected backend cannot connect before response bytes reach the client, the
+balancer tries the other backend once. It returns `502 Bad Gateway` only when
+both backends fail.
+
+It does not run health checks, remove failed backends, use weights, terminate
+TLS, or support request bodies and persistent connections.
+
+## Run
+
+Start two HTTP backends from the project root in separate terminals:
+
+```bash
+python http-server/server.py --host 127.0.0.1 --port 8088
+python http-server/server.py --host 127.0.0.1 --port 8089
+```
+
+Start the load balancer in another terminal:
+
+```bash
+(cd load-balancer && go run server.go \
+  -listen-host 127.0.0.1 \
+  -listen-port 8000 \
+  -backend 127.0.0.1:8088 \
+  -backend 127.0.0.1:8089)
+```
+
+Requests to `http://127.0.0.1:8000` now alternate between the backends.
+
+## Test
+
+```bash
+python -m unittest discover -s load-balancer/tests -v
+```
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Architecture decisions](docs/adr/)
 
 ## Sources
 

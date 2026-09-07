@@ -1,0 +1,53 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27"
+          cache: false
+
+      - name: Build Go servers
+        run: |
+          go build -o "${{ runner.temp }}/reverse-proxy" reverse-proxy/server.go
+          go build -o "${{ runner.temp }}/load-balancer" load-balancer/server.go
+
+      - name: Check Python syntax
+        run: python -m py_compile http-server/server.py http-server/client.py
+
+      - name: Test HTTP client and server
+        run: python -m unittest discover -s http-server/tests -v
+
+      - name: Test reverse proxy
+        run: python -m unittest discover -s reverse-proxy/tests -v
+
+      - name: Test load balancer
+        run: python -m unittest discover -s load-balancer/tests -v
+
+      - name: Test in-memory cache
+        run: python -m unittest discover -s in-mem-cache/tests -v
+
+      - name: Test DNS server
+        working-directory: dns-server
+        run: go test server.go server_test.go
+
+      - name: Test integrated stack
+        run: python -m unittest discover -s integration-tests -v

@@ -1,6 +1,6 @@
 # Use one backend for the first reverse proxy
 
-Last updated: 27.08.2026
+Last updated: 07.09.2026
 
 ## Summary
 
@@ -9,6 +9,11 @@ Use Python's standard library to run a local reverse proxy. It listens on
 one configured backend, which defaults to `127.0.0.1:8088`.
 
 ## Context
+
+[`002-use-go-for-reverse-proxy.md`](002-use-go-for-reverse-proxy.md) replaces
+the Python implementation choice in this record. The single-backend and
+protocol boundaries remain in force. The current component documentation
+records the later change to concurrent client handling.
 
 The next network component needs to sit in front of the existing HTTP server.
 A single backend demonstrates request forwarding and backend failure handling

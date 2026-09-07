@@ -1,7 +1,7 @@
 # Contributing
 
-This is a personal learning project, but focused fixes, tests, and documentation
-improvements are welcome.
+This personal learning project welcomes focused fixes, tests, and documentation
+improvements.
 
 Keep each change limited to one component or one documentation concern. Open an
 issue before adding a component, dependency, protocol feature, or shared

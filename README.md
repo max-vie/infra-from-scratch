@@ -6,9 +6,8 @@ A systems design project that builds a small networked service stack from
 scratch.
 
 The components use raw sockets, manual protocol parsing, language standard
-libraries, and POSIX interfaces. The goal is to understand how infrastructure
-works across process and protocol boundaries, not to replace production
-software.
+libraries, and POSIX interfaces. The code exposes process and protocol
+boundaries.
 
 ## Working system
 
@@ -17,25 +16,23 @@ two HTTP servers. Its client resolves `app.local` and sends an HTTP request
 through the complete path:
 
 ```mermaid
-sequenceDiagram
-    participant Client as Integration test client
-    participant DNS as DNS server
-    participant Proxy as Reverse proxy
-    participant Balancer as Load balancer
-    participant Backend as HTTP server
+flowchart LR
+    DNS[DNS server<br/>app.local = 127.0.0.1]
+    Client[Integration test client]
+    Proxy[Reverse proxy]
+    Balancer[Load balancer]
+    ServerA[HTTP server A]
+    ServerB[HTTP server B]
 
-    Client->>DNS: Resolve app.local
-    DNS-->>Client: 127.0.0.1
-    Client->>Proxy: GET /health
-    Proxy->>Balancer: Forward request
-    Balancer->>Backend: Select backend
-    Backend-->>Balancer: 200 OK
-    Balancer-->>Proxy: Relay response
-    Proxy-->>Client: Relay response
+    DNS -. resolved address .-> Client
+    Client -->|GET /health| Proxy
+    Proxy --> Balancer
+    Balancer --> ServerA
+    Balancer --> ServerB
 ```
 
-The custom HTTP client and in-memory cache also work, but they are tested as
-standalone components and are not part of this integrated path.
+The custom HTTP client and in-memory cache have their own component tests.
+Integration work for both remains open.
 
 ## Components
 
@@ -92,7 +89,7 @@ two fixed backends, and the cache has no persistence or authentication.
 
 Possible next steps include connecting the custom client and cache to the
 tested path, building the container runtime, and exploring service discovery
-and observability. These are directions, not release commitments.
+and observability.
 
 ## Feedback and license
 

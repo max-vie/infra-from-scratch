@@ -70,14 +70,16 @@ func serve(listenAddress, backendAddress string) error {
 
 	fmt.Printf("serving reverse proxy on %s to %s\n", listenAddress, backendAddress)
 
-	// Handle one client connection at a time.
+	// Handle each client independently so a slow request cannot block others.
 	for {
 		client, err := listener.Accept()
 		if err != nil {
 			continue
 		}
-		handleConnection(client, backendAddress)
-		client.Close()
+		go func(connection net.Conn) {
+			defer connection.Close()
+			handleConnection(connection, backendAddress)
+		}(client)
 	}
 }
 

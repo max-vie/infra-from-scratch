@@ -147,6 +147,26 @@ class TestReverseProxy(unittest.TestCase):
         self.assertIn(b"HTTP/1.1 200 OK", response)
         self.assertIn(b"HELLO WORLD!", response)
 
+    def test_handles_another_client_while_request_is_incomplete(self):
+        self.start_process(
+            [sys.executable, "server.py"],
+            cwd="http-server",
+        )
+        wait_for_port(BACKEND_PORT)
+        proxy_port = self.start_proxy(BACKEND_PORT)
+
+        with socket.create_connection((HOST, proxy_port), timeout=2) as slow_client:
+            slow_client.sendall(b"GET / HTTP/1.1\r\nHost: localhost\r\n")
+            time.sleep(0.05)
+
+            response = self.request(
+                proxy_port,
+                b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            )
+
+        self.assertIn(b"HTTP/1.1 200 OK", response)
+        self.assertTrue(response.endswith(b"OK\n"))
+
     def test_returns_bad_gateway_when_backend_is_unavailable(self):
         proxy_port = self.start_proxy(free_port())
 

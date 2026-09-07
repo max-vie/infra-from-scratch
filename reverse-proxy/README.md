@@ -1,7 +1,7 @@
 # reverse-proxy
 
-A small Go reverse proxy that forwards one HTTP request to a configured
-backend and relays the response.
+A small Go reverse proxy that handles clients concurrently, forwards one HTTP
+request to a configured backend, and relays the response.
 
 ## Sources
 

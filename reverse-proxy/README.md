@@ -1,7 +1,49 @@
-# reverse-proxy
+# Reverse proxy
 
-A small Go reverse proxy that handles clients concurrently, forwards one HTTP
-request to a configured backend, and relays the response.
+A small Go reverse proxy that handles clients concurrently and forwards one
+HTTP request per connection to a configured backend.
+
+## Behavior
+
+The proxy reads one header-terminated request, forwards the raw bytes, and
+relays the response until the backend closes its connection. It limits request
+headers to 64 KiB and returns `400 Bad Request` for empty, incomplete,
+oversized, or body-framed requests. It returns `502 Bad Gateway` when the
+backend fails before response bytes reach the client.
+
+The proxy does not terminate TLS or support request bodies, persistent
+connections, chunked transfer encoding, or multiple backends.
+
+## Run
+
+Start the HTTP backend from the project root:
+
+```bash
+python http-server/server.py --host 127.0.0.1 --port 8088
+```
+
+In another terminal, start the reverse proxy:
+
+```bash
+(cd reverse-proxy && go run server.go \
+  -listen-host 127.0.0.1 \
+  -listen-port 8080 \
+  -backend-host 127.0.0.1 \
+  -backend-port 8088)
+```
+
+Requests to `http://127.0.0.1:8080` now pass through the proxy.
+
+## Test
+
+```bash
+python -m unittest discover -s reverse-proxy/tests -v
+```
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Architecture decisions](docs/adr/)
 
 ## Sources
 

@@ -1,6 +1,41 @@
-# dns-server
+# DNS server
 
-A small Go UDP server that resolves `app.local` to `127.0.0.1`.
+A small Go UDP server that parses DNS messages and resolves `app.local` to
+`127.0.0.1` using only the standard library.
+
+## Behavior
+
+The server accepts one-question DNS queries over IPv4 UDP. It returns a fixed A
+record for `app.local`, returns `NXDOMAIN` for unknown names, and ignores
+malformed messages it cannot parse.
+
+It does not perform recursive resolution, caching, zone loading, or DNS over
+TCP.
+
+## Run
+
+Start the server from the project root:
+
+```bash
+(cd dns-server && go run server.go -host 127.0.0.1 -port 8053)
+```
+
+Query the local record with `dig`:
+
+```bash
+dig @127.0.0.1 -p 8053 app.local A
+```
+
+## Test
+
+```bash
+(cd dns-server && go test server.go server_test.go)
+```
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Architecture decisions](docs/adr/)
 
 ## Sources
 

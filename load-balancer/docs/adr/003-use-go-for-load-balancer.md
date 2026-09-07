@@ -1,6 +1,6 @@
 # Use Go for the load balancer
 
-Last updated: 06.09.2026
+Last updated: 07.09.2026
 
 ## Summary
 
@@ -8,6 +8,12 @@ Rewrite the load balancer in Go, replacing the Python implementation. The
 project's language mapping assigns Go to network infrastructure components.
 
 ## Context
+
+This decision replaces the Python implementation choices in
+[`001-use-round-robin-backend-selection.md`](001-use-round-robin-backend-selection.md)
+and
+[`002-fail-over-to-other-backend-on-connection-failure.md`](002-fail-over-to-other-backend-on-connection-failure.md).
+Their backend-selection and failover policies remain in force.
 
 The project maps each component to a language: Go for network infrastructure,
 C for systems components, and Python for HTTP fundamentals. The load balancer

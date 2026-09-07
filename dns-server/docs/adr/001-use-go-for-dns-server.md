@@ -1,6 +1,6 @@
 # Use Go for the DNS server
 
-Last updated: 27.08.2026
+Last updated: 07.09.2026
 
 ## Summary
 
@@ -12,9 +12,9 @@ The DNS component needs a long-running UDP service. Go's standard library
 provides the required network primitives without an external dependency or
 framework.
 
-Python is the main language for the project and remains a suitable choice for
-the HTTP component. Keeping DNS in Python would mean one language, but Go
-produces a small standalone service and gives the project practice with systems
+Python remains a suitable choice for the HTTP component and test harnesses.
+Keeping DNS in Python would reduce the number of languages, but Go produces a
+small standalone service and gives the project practice with systems
 programming. CoreDNS is a useful Go DNS reference.
 
 ## Decision

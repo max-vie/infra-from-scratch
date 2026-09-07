@@ -1,46 +1,11 @@
-# Documentation
+# Load balancer documentation
 
-The load balancer documentation lives here.
+- [`adr/001-use-round-robin-backend-selection.md`](adr/001-use-round-robin-backend-selection.md)
+  defines backend selection.
+- [`adr/002-fail-over-to-other-backend-on-connection-failure.md`](adr/002-fail-over-to-other-backend-on-connection-failure.md)
+  defines connection-failure handling.
+- [`adr/003-use-go-for-load-balancer.md`](adr/003-use-go-for-load-balancer.md)
+  replaces the original Python implementation with Go.
 
-## Run
-
-Start two HTTP servers from the project root:
-
-```bash
-python http-server/server.py --host 127.0.0.1 --port 8088
-python http-server/server.py --host 127.0.0.1 --port 8089
-```
-
-Start the load balancer in another terminal, from `load-balancer/`:
-
-```bash
-go run server.go \
-  -listen-host 127.0.0.1 \
-  -listen-port 8000 \
-  -backend 127.0.0.1:8088 \
-  -backend 127.0.0.1:8089
-```
-
-It sends successive valid requests to the two backends in alternating order.
-When the selected backend cannot be reached before response bytes start, it
-tries the other backend once in the same client connection. It returns `502
-Bad Gateway` only when both backends fail. It does not remove backends from
-the list or run health checks.
-
-## Test
-
-Run the load balancer tests from the project root:
-
-```bash
-python -m unittest discover -s load-balancer/tests -v
-```
-
-## ADRs
-
-Architecture Decision Records live in [`adr/`](adr/).
-
-ADR filenames use a zero-padded number and lowercase slug, for example:
-
-```text
-adr/001-short-description.md
-```
+See the [component README](../README.md) for current behavior, run, and test
+commands.

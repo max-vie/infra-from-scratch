@@ -1,6 +1,6 @@
 # Use Go for the reverse proxy
 
-Last updated: 06.09.2026
+Last updated: 07.09.2026
 
 ## Summary
 
@@ -8,6 +8,10 @@ Rewrite the reverse proxy in Go, replacing the Python implementation. The
 project's language mapping assigns Go to network infrastructure components.
 
 ## Context
+
+This decision replaces the Python implementation choice in
+[`001-use-one-backend-for-first-proxy.md`](001-use-one-backend-for-first-proxy.md).
+That record continues to define the single-backend and protocol boundaries.
 
 The project maps each component to a language: Go for network infrastructure,
 C for systems components, and Python for HTTP fundamentals. The reverse proxy

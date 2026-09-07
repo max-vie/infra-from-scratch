@@ -1,6 +1,6 @@
 # Use C for the in-memory cache
 
-Last updated: 05.09.2026
+Last updated: 07.09.2026
 
 ## Summary
 
@@ -10,10 +10,10 @@ expiry.
 
 ## Context
 
-The project is mostly Python, with Go used for the DNS server to practice
-systems programming. The cache is the first component where raw Linux
-learning is the explicit goal and runtime behavior matters more than coding
-speed, so a C implementation fits despite the heavier slice.
+The project uses Go for network infrastructure and Python for HTTP fundamentals
+and test harnesses. The cache is the first component where raw Linux learning
+is the explicit goal and runtime behavior matters more than coding speed, so a
+C implementation fits despite the heavier slice.
 
 A Python cache would reuse the existing `unittest` subprocess patterns
 directly and ship faster, while Go would give simpler concurrency than C.
@@ -27,13 +27,12 @@ dependencies. Speak a minimal text protocol over TCP: `SET <key> <ttl>
 <value>`, `GET <key>`, and `DELETE <key>`, with `OK`, `VALUE`, `NOT_FOUND`,
 and `ERROR` replies.
 
-Handle one client at a time like the proxy and load balancer. Store up to
-1024 keys with a 256-byte key limit and a 4096-byte value limit, enforce a
-64 KiB line limit, and expire keys lazily when accessed or when their slots
-are needed. Test it with Python `unittest` subprocess tests in
-`in-mem-cache/tests/`, mirroring the proxy and load balancer style. Do not add
-concurrency, eviction, persistence, authentication, or third-party
-dependencies in this slice.
+Handle one client at a time. Store up to 1024 keys with a 256-byte key limit
+and a 4096-byte value limit, enforce a 64 KiB line limit, and expire keys
+lazily when accessed or when their slots are needed. Test it with Python
+`unittest` subprocess tests in `in-mem-cache/tests/`, mirroring the proxy and
+load balancer style. Do not add concurrency, eviction, persistence,
+authentication, or third-party dependencies in this slice.
 
 ## Consequences
 

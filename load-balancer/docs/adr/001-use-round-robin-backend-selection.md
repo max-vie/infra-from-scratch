@@ -1,6 +1,6 @@
 # Use round-robin selection for the first load balancer
 
-Last updated: 01.09.2026
+Last updated: 07.09.2026
 
 ## Summary
 
@@ -9,6 +9,10 @@ load balancer uses Python's standard library and handles one request per
 connection.
 
 ## Context
+
+[`003-use-go-for-load-balancer.md`](003-use-go-for-load-balancer.md) replaces
+the Python implementation choice in this record. The round-robin selection
+policy remains in force.
 
 The reverse proxy has one backend. The next network step needs backend
 selection, but it does not need health tracking or retry policy yet. Two fixed

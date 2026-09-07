@@ -1,6 +1,7 @@
-# in-mem-cache
+# In-memory cache
 
-A small C TCP cache that stores text keys and values with lazy TTL expiry.
+A small C TCP cache that stores text keys and values with lazy expiry. It uses
+C11, POSIX sockets, fixed bounds, and no third-party libraries.
 
 ## Protocol
 
@@ -18,6 +19,36 @@ spaces, TTL is `0`–`86400` seconds with `0` meaning no expiry.
 The process stores up to 1024 live keys. Expired keys behave as missing and
 their slots are reclaimed when needed. There is no background sweeper,
 eviction, persistence, or authentication yet.
+
+The server handles one client connection at a time while keeping stored keys
+across connections.
+
+## Run
+
+Build the cache from the project root:
+
+```bash
+gcc -std=c11 -Wall -Wextra -O2 -o in-mem-cache/server in-mem-cache/server.c
+```
+
+Start it on the default local address:
+
+```bash
+./in-mem-cache/server --listen-host 127.0.0.1 --listen-port 11211
+```
+
+## Test
+
+```bash
+python -m unittest discover -s in-mem-cache/tests -v
+```
+
+The tests compile a fresh temporary binary with strict warnings.
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Architecture decisions](docs/adr/)
 
 ## Sources
 

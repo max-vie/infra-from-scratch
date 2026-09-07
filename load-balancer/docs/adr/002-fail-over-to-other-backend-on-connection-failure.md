@@ -1,6 +1,6 @@
 # Fail over to the other backend on connection failure
 
-Last updated: 05.09.2026
+Last updated: 07.09.2026
 
 ## Summary
 
@@ -9,6 +9,10 @@ response bytes reach the client. Return `502 Bad Gateway` only when both
 backends fail.
 
 ## Context
+
+[`003-use-go-for-load-balancer.md`](003-use-go-for-load-balancer.md) replaces
+the Python implementation references in this record. The failover policy
+remains in force.
 
 The first load balancer used deterministic round-robin between two backends
 and returned `502 Bad Gateway` for the request assigned to a dead backend. The

@@ -31,8 +31,8 @@ flowchart LR
     Balancer --> ServerB
 ```
 
-The custom HTTP client and in-memory cache have their own component tests.
-Integration work for both remains open.
+The custom HTTP client drives the integrated request path. The in-memory cache
+remains a standalone component with its own tests.
 
 ## Components
 
@@ -87,9 +87,8 @@ does not support TLS, request bodies, persistent connections, or chunked
 transfer encoding. The DNS server owns one local record, the load balancer has
 two fixed backends, and the cache has no persistence or authentication.
 
-Possible next steps include connecting the custom client and cache to the
-tested path, building the container runtime, and exploring service discovery
-and observability.
+Possible next steps include connecting the cache to the tested path, building
+the container runtime, and exploring service discovery and observability.
 
 ## Feedback and license
 

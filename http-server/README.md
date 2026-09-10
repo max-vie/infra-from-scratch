@@ -9,6 +9,8 @@ over TCP sockets.
 `URL(address).request()` sends a `GET` request and returns a `Response` with the
 HTTP version, numeric status, reason phrase, case-insensitive headers, and raw
 body bytes. Well-formed error responses are returned like successful responses.
+Pass a `DNSResolver` to `request(resolver=...)` when the address should resolve
+through a configured UDP DNS server.
 
 The server reads one request through `\r\n\r\n`, limits the header block to 64
 KiB, and closes the connection after responding.

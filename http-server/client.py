@@ -1,10 +1,14 @@
 import socket
+import struct
 import sys
 from dataclasses import dataclass
 
 
 SUPPORTED_VERSIONS = {"HTTP/1.0", "HTTP/1.1"}
 TOKEN_SYMBOLS = "!#$%&'*+-.^_`|~"
+DNS_HEADER_SIZE = 12
+DNS_TYPE_A = 1
+DNS_CLASS_IN = 1
 
 
 @dataclass
@@ -89,6 +93,111 @@ def _read_response(response_file):
         body=response_file.read(),
     )
 
+
+def _encode_dns_name(host):
+    labels = host.rstrip(".").split(".")
+    if not host or any(not label for label in labels):
+        raise ValueError("Invalid DNS name")
+
+    encoded = bytearray()
+    for label in labels:
+        try:
+            label_bytes = label.encode("ascii")
+        except UnicodeEncodeError as error:
+            raise ValueError("DNS names must use ASCII labels") from error
+        if len(label_bytes) > 63:
+            raise ValueError("DNS labels are limited to 63 bytes")
+        encoded.append(len(label_bytes))
+        encoded.extend(label_bytes)
+    encoded.append(0)
+    return bytes(encoded)
+
+
+def _build_dns_query(host, transaction_id):
+    header = struct.pack("!HHHHHH", transaction_id, 0x0100, 1, 0, 0, 0)
+    question = _encode_dns_name(host) + struct.pack(
+        "!HH", DNS_TYPE_A, DNS_CLASS_IN
+    )
+    return header + question
+
+
+def _skip_dns_name(packet, position):
+    while True:
+        if position >= len(packet):
+            raise ValueError("truncated DNS name")
+        length = packet[position]
+        if length == 0:
+            return position + 1
+        if length & 0xC0 == 0xC0:
+            if position + 2 > len(packet):
+                raise ValueError("truncated DNS pointer")
+            return position + 2
+        if length & 0xC0:
+            raise ValueError("invalid DNS label")
+        position += 1
+        if position + length > len(packet):
+            raise ValueError("truncated DNS label")
+        position += length
+
+
+def _parse_dns_address(packet, transaction_id):
+    if len(packet) < DNS_HEADER_SIZE:
+        raise ValueError("truncated DNS response")
+
+    response_id, flags, question_count, answer_count, _, _ = struct.unpack(
+        "!HHHHHH", packet[:DNS_HEADER_SIZE]
+    )
+    if response_id != transaction_id:
+        raise ValueError("unexpected DNS transaction ID")
+    if not flags & 0x8000 or flags & 0x000F:
+        raise ValueError("DNS response was not successful")
+    if question_count != 1:
+        raise ValueError("DNS response did not contain one question")
+
+    position = _skip_dns_name(packet, DNS_HEADER_SIZE)
+    if position + 4 > len(packet):
+        raise ValueError("truncated DNS question")
+    position += 4
+
+    for _ in range(answer_count):
+        position = _skip_dns_name(packet, position)
+        if position + 10 > len(packet):
+            raise ValueError("truncated DNS answer")
+        record_type, record_class, _, data_length = struct.unpack(
+            "!HHIH", packet[position:position + 10]
+        )
+        position += 10
+        if position + data_length > len(packet):
+            raise ValueError("truncated DNS answer data")
+        if (
+            record_type == DNS_TYPE_A
+            and record_class == DNS_CLASS_IN
+            and data_length == 4
+        ):
+            return socket.inet_ntoa(packet[position:position + data_length])
+        position += data_length
+
+    raise ValueError("DNS response did not contain an IPv4 address")
+
+
+class DNSResolver:
+    def __init__(self, nameserver, timeout=0.1):
+        self.nameserver = nameserver
+        self.timeout = timeout
+
+    def resolve(self, host):
+        transaction_id = 0x1234
+        query = _build_dns_query(host, transaction_id)
+        with socket.socket(
+            family=socket.AF_INET,
+            type=socket.SOCK_DGRAM,
+            proto=socket.IPPROTO_UDP,
+        ) as query_socket:
+            query_socket.settimeout(self.timeout)
+            query_socket.sendto(query, self.nameserver)
+            response, _ = query_socket.recvfrom(512)
+        return _parse_dns_address(response, transaction_id)
+
 # Parse the scheme, host, and request path for the HTTP client.
 class URL:
     def __init__(self, address):
@@ -124,14 +233,15 @@ class URL:
 
         self.host_header = authority
 
-    def request(self):
+    def request(self, resolver=None):
         # Open a TCP connection and send the existing HTTP/1.0 request.
+        host = resolver.resolve(self.host) if resolver else self.host
         with socket.socket(
             family=socket.AF_INET,
             type=socket.SOCK_STREAM,
             proto=socket.IPPROTO_TCP,
         ) as s:
-            s.connect((self.host, self.port))
+            s.connect((host, self.port))
 
             request = "GET {} HTTP/1.0\r\n".format(self.path)
             request += "Host: {}\r\n".format(self.host_header)

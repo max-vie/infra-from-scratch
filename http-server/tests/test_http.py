@@ -1,4 +1,5 @@
 import socket
+import struct
 import subprocess
 import sys
 import threading
@@ -10,7 +11,7 @@ from pathlib import Path
 # Add the parent directory so the test can import client.py directly.
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from client import Response, URL
+from client import DNSResolver, Response, URL
 
 
 class OneShotResponseServer:
@@ -35,10 +36,53 @@ class OneShotResponseServer:
             with self.listener:
                 connection, _ = self.listener.accept()
                 with connection:
-                    connection.recv(4096)
+                    self.request = connection.recv(4096)
                     connection.sendall(self.response)
         except OSError:
             pass
+
+
+class OneShotDNSResponseServer:
+    def __init__(self, response_factory):
+        self.response_factory = response_factory
+        self.listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.listener.bind(("127.0.0.1", 0))
+        self.port = self.listener.getsockname()[1]
+        self.thread = threading.Thread(target=self._serve, daemon=True)
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.listener.close()
+        self.thread.join(timeout=2)
+
+    def _serve(self):
+        try:
+            with self.listener:
+                query, address = self.listener.recvfrom(512)
+                self.listener.sendto(self.response_factory(query), address)
+        except OSError:
+            pass
+
+
+def build_dns_response(query, flags=0x8180, answer=True):
+    position = 12
+    while query[position] != 0:
+        position += 1 + query[position]
+    question_end = position + 5
+    question = query[12:question_end]
+    answer_count = 1 if answer else 0
+    header = query[:2] + struct.pack("!HHHHH", flags, 1, answer_count, 0, 0)
+    if not answer:
+        return header + question
+    record = (
+        b"\xc0\x0c"
+        + struct.pack("!HHIH", 1, 1, 60, 4)
+        + b"\x7f\x00\x00\x01"
+    )
+    return header + question + record
 
 
 class TestHTTP(unittest.TestCase):
@@ -91,6 +135,50 @@ class TestHTTP(unittest.TestCase):
         self.assertEqual(response.reason, "Not Found")
         self.assertEqual(response.headers["x-test"], "second")
         self.assertEqual(response.body, b"no!")
+
+    def test_resolver_returns_ipv4_address(self):
+        with OneShotDNSResponseServer(build_dns_response) as server:
+            resolver = DNSResolver(("127.0.0.1", server.port))
+            self.assertEqual(resolver.resolve("app.local"), "127.0.0.1")
+
+    def test_resolver_rejects_invalid_responses(self):
+        responses = (
+            lambda query: build_dns_response(query, flags=0x8183, answer=False),
+            lambda query: build_dns_response(query, answer=False),
+            lambda query: bytes([query[0] ^ 1, query[1]]) + build_dns_response(query)[2:],
+            lambda query: query[:2],
+        )
+
+        for response_factory in responses:
+            with self.subTest(response_factory=response_factory):
+                with OneShotDNSResponseServer(response_factory) as server:
+                    resolver = DNSResolver(("127.0.0.1", server.port))
+                    with self.assertRaises(ValueError):
+                        resolver.resolve("app.local")
+
+    def test_request_uses_resolver_and_preserves_host_header(self):
+        raw_response = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nbody"
+
+        class StaticResolver:
+            def __init__(self):
+                self.host = None
+
+            def resolve(self, host):
+                self.host = host
+                return "127.0.0.1"
+
+        resolver = StaticResolver()
+        with OneShotResponseServer(raw_response) as server:
+            response = URL(f"app.local:{server.port}/health").request(
+                resolver=resolver
+            )
+
+        self.assertEqual(response.body, b"body")
+        self.assertEqual(resolver.host, "app.local")
+        self.assertIn(
+            f"Host: app.local:{server.port}\r\n".encode(),
+            server.request,
+        )
 
     def test_preserves_binary_response_body(self):
         raw_response = (

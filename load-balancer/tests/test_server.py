@@ -158,6 +158,27 @@ class TestLoadBalancer(unittest.TestCase):
         self.assertIn(b"backend-b", responses[1])
         self.assertIn(b"backend-a", responses[2])
 
+    def test_handles_another_client_while_request_is_incomplete(self):
+        backends = [
+            self.start_backend("backend-a"),
+            self.start_backend("backend-b"),
+        ]
+        load_balancer_port = self.start_load_balancer(backends)
+
+        with socket.create_connection(
+            (HOST, load_balancer_port),
+            timeout=2,
+        ) as slow_client:
+            slow_client.sendall(b"GET / HTTP/1.1\r\nHost: localhost\r\n")
+            time.sleep(0.05)
+
+            response = self.request(
+                load_balancer_port,
+                b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            )
+
+        self.assertIn(b"backend-a", response)
+
     def test_fails_over_to_other_backend_on_connection_failure(self):
         live_backend = self.start_backend("backend-b")
         unavailable_backend = (HOST, free_port())

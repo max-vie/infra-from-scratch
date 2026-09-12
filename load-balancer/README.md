@@ -1,15 +1,16 @@
 # Load balancer
 
-A small Go load balancer that sends HTTP requests to two fixed backends in
-round-robin order.
+A small Go load balancer that handles clients concurrently and sends HTTP
+requests to two fixed backends in round-robin order.
 
 ## Behavior
 
 The load balancer validates one header-terminated request before selecting a
-backend. Successive valid requests alternate between the two backends. If the
-selected backend cannot connect before response bytes reach the client, the
-balancer tries the other backend once. It returns `502 Bad Gateway` only when
-both backends fail.
+backend. It handles each client in its own goroutine, so a slow or incomplete
+request does not block other clients. Successive valid requests alternate
+between the two backends. If the selected backend cannot connect before
+response bytes reach the client, the balancer tries the other backend once. It
+returns `502 Bad Gateway` only when both backends fail.
 
 It does not run health checks, remove failed backends, use weights, terminate
 TLS, or support request bodies and persistent connections.

@@ -1,6 +1,6 @@
 # Fail over to the other backend on connection failure
 
-Last updated: 07.09.2026
+Last updated: 12.09.2026
 
 ## Summary
 
@@ -12,7 +12,7 @@ backends fail.
 
 [`003-use-go-for-load-balancer.md`](003-use-go-for-load-balancer.md) replaces
 the Python implementation references in this record. The failover policy
-remains in force.
+remains in force, and clients are now handled concurrently.
 
 The first load balancer used deterministic round-robin between two backends
 and returned `502 Bad Gateway` for the request assigned to a dead backend. The
@@ -29,23 +29,25 @@ boundary: reject empty, incomplete, oversized, or body-framed requests with
 `400 Bad Request` before backend selection.
 
 For each valid request, try the round-robin selected backend first. On
-`OSError` before any response bytes are relayed, try the other backend once in
-the same client connection. Send `502 Bad Gateway` only when both attempts
-fail before response start. If response bytes already reached the client,
-close the connection without appending another error and do not retry.
+connection failure before any response bytes are relayed, try the other backend
+once in the same client connection. Send `502 Bad Gateway` only when both
+attempts fail before response start. If response bytes already reached the
+client, close the connection without appending another error and do not retry.
 
-Advance the round-robin pointer by one from the originally selected backend
-regardless of which backend served the request, preserving alternation when
-both backends are healthy.
+The shared selection counter advances once when a valid request claims its
+starting backend, regardless of which backend serves the request. This
+preserves alternation when both backends are healthy and when clients arrive
+concurrently.
 
 ## Consequences
 
 One dead backend no longer causes user-visible `502` responses while the other
 backend is healthy; the failed attempt costs one extra backend connection per
 request. Both backends down still returns `502`. Partial responses keep the
-existing behavior of closing without a second error. The server remains serial
-with no health checks, weights, persistent connections, TLS, or request
-bodies.
+existing behavior of closing without a second error. Concurrent clients each
+claim their own starting backend, so one slow request does not delay others,
+and failover stays within the request that triggered it. The load balancer has
+no health checks, weights, persistent connections, TLS, or request bodies.
 
 ## References
 

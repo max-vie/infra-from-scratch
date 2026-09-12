@@ -1,5 +1,6 @@
 import argparse
 import socket
+import threading
 
 from application import Request, respond
 
@@ -109,24 +110,25 @@ def build_response(status, body, headers=()):
 
 
 def handle_connection(connection):
-    # Parse one request and prepare exactly one response.
-    try:
-        method, target, _version, headers = parse_request(read_request(connection))
-        if {"content-length", "transfer-encoding"} & headers.keys():
-            raise ValueError("request bodies are not supported")
-        application_response = respond(Request(method, target))
-        response = build_response(
-            application_response.status,
-            application_response.body,
-            application_response.headers,
-        )
-    except (OSError, ValueError):
-        response = build_response("400 Bad Request", b"Bad Request\n")
+    # Parse one request, prepare exactly one response, and close the connection.
+    with connection:
+        try:
+            method, target, _version, headers = parse_request(read_request(connection))
+            if {"content-length", "transfer-encoding"} & headers.keys():
+                raise ValueError("request bodies are not supported")
+            application_response = respond(Request(method, target))
+            response = build_response(
+                application_response.status,
+                application_response.body,
+                application_response.headers,
+            )
+        except (OSError, ValueError):
+            response = build_response("400 Bad Request", b"Bad Request\n")
 
-    try:
-        connection.sendall(response)
-    except OSError:
-        pass
+        try:
+            connection.sendall(response)
+        except OSError:
+            pass
 
 
 def serve(host=HOST, port=PORT):
@@ -134,13 +136,18 @@ def serve(host=HOST, port=PORT):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listen_socket:
         listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listen_socket.bind((host, port))
-        listen_socket.listen(1)
+        listen_socket.listen(5)
         print(f"serving HTTP on {host}:{port} ...")
 
         while True:
             client_connection, _ = listen_socket.accept()
-            with client_connection:
-                handle_connection(client_connection)
+            # Handle each client independently so a slow request cannot
+            # block others.
+            threading.Thread(
+                target=handle_connection,
+                args=(client_connection,),
+                daemon=True,
+            ).start()
 
 
 def parse_args(argv=None):

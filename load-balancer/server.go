@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -100,19 +101,21 @@ func serve(listenAddress string, backendAddresses []string) error {
 		len(backendAddresses),
 	)
 
-	// Handle one client connection at a time.
-	backendIndex := 0
+	// Handle each client independently so a slow request cannot block others.
+	var selection atomic.Uint64
 	for {
 		client, err := listener.Accept()
 		if err != nil {
 			continue
 		}
-		backendIndex = handleConnection(client, backendAddresses, backendIndex)
-		client.Close()
+		go func(connection net.Conn) {
+			defer connection.Close()
+			handleConnection(connection, backendAddresses, &selection)
+		}(client)
 	}
 }
 
-func handleConnection(client net.Conn, backendAddresses []string, backendIndex int) int {
+func handleConnection(client net.Conn, backendAddresses []string, selection *atomic.Uint64) {
 	// Validate the request before choosing a backend.
 	_ = client.SetDeadline(time.Now().Add(socketTimeout))
 
@@ -122,11 +125,11 @@ func handleConnection(client net.Conn, backendAddresses []string, backendIndex i
 		hasUnsupportedBody(request)
 	if invalid {
 		sendError(client, "400 Bad Request", []byte("Bad Request\n"))
-		return backendIndex
+		return
 	}
 
-	initialIndex := backendIndex
-	nextBackendIndex := (initialIndex + 1) % len(backendAddresses)
+	// Claim this request's starting backend so concurrent clients still alternate.
+	initialIndex := int(selection.Add(1)-1) % len(backendAddresses)
 	for offset := range len(backendAddresses) {
 		selectedBackend := backendAddresses[(initialIndex+offset)%len(backendAddresses)]
 		responseStarted := false
@@ -138,19 +141,17 @@ func handleConnection(client net.Conn, backendAddresses []string, backendIndex i
 			backend.Close()
 		}
 		if err == nil {
-			return nextBackendIndex
+			return
 		}
 		if responseStarted {
 			// Response bytes already reached the client; do not retry
 			// or append another error.
-			return nextBackendIndex
+			return
 		}
 		if offset == len(backendAddresses)-1 {
 			sendError(client, "502 Bad Gateway", []byte("Bad Gateway\n"))
 		}
 	}
-
-	return nextBackendIndex
 }
 
 func relay(backend, client net.Conn, request []byte, responseStarted *bool) error {

@@ -1,18 +1,19 @@
 # Use round-robin selection for the first load balancer
 
-Last updated: 07.09.2026
+Last updated: 12.09.2026
 
 ## Summary
 
 Use deterministic round-robin selection between two configured backends. The
-load balancer uses Python's standard library and handles one request per
+load balancer handles clients concurrently and forwards one request per
 connection.
 
 ## Context
 
 [`003-use-go-for-load-balancer.md`](003-use-go-for-load-balancer.md) replaces
 the Python implementation choice in this record. The round-robin selection
-policy remains in force.
+policy remains in force, and the current implementation handles clients
+concurrently.
 
 The reverse proxy has one backend. The next network step needs backend
 selection, but it does not need health tracking or retry policy yet. Two fixed
@@ -27,6 +28,11 @@ request selects the next backend in order and forwards the header-terminated
 request. The load balancer relays the response until the backend closes the
 connection.
 
+Handle each client in its own goroutine so an incomplete request cannot block
+another client. Each valid request claims its starting backend by incrementing
+one shared counter, so concurrent requests still alternate in the order they
+claim a backend.
+
 Keep the existing protocol boundary: reject empty, incomplete, oversized, or
 body-framed requests with `400 Bad Request`. Return `502 Bad Gateway` when the
 selected backend fails before response relay begins. If response bytes have
@@ -37,8 +43,9 @@ error. Do not retry requests or remove failed backends.
 
 Valid requests alternate between the two backends. A failed backend affects
 the request assigned to it, while the next valid request moves to the other
-backend. The server remains serial and does not support health checks, weights,
-persistent connections, TLS, or request bodies.
+backend. Invalid requests do not advance the selection counter. The load
+balancer does not support health checks, weights, persistent connections, TLS,
+or request bodies.
 
 If the component grows, a later slice can replace round-robin selection with a
 health-aware backend pool and record the new failure policy separately.

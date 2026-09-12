@@ -170,6 +170,19 @@ class TestServer(unittest.TestCase):
         self.assertIn(b"HTTP/1.1 200 OK\r\n", response)
         self.assertIn(b"HELLO WORLD!\n", response)
 
+    def test_handles_another_client_while_request_is_incomplete(self):
+        with socket.create_connection((HOST, self.port), timeout=2) as slow_client:
+            slow_client.sendall(b"GET / HTTP/1.1\r\nHost: app.local\r\n")
+            time.sleep(0.05)
+
+            response = send_request(
+                self.port,
+                [b"GET /health HTTP/1.1\r\nHost: app.local\r\n\r\n"],
+            )
+
+        self.assertIn(b"HTTP/1.1 200 OK\r\n", response)
+        self.assertIn(b"OK\n", response)
+
     def test_returns_not_found_for_unknown_route(self):
         response = send_request(
             self.port,

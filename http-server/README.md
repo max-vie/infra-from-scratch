@@ -13,7 +13,8 @@ Pass a `DNSResolver` to `request(resolver=...)` when the address should resolve
 through a configured UDP DNS server.
 
 The server reads one request through `\r\n\r\n`, limits the header block to 64
-KiB, and closes the connection after responding.
+KiB, and closes the connection after responding. It handles each client in its
+own thread, so a slow request does not block other clients.
 
 | Request | Response |
 | --- | --- |

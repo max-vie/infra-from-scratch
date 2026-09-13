@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -22,6 +23,7 @@
 #define STORE_CAP 1024
 #define TTL_MAX 86400
 #define RECV_BUF 4096
+#define LISTEN_BACKLOG 16
 
 struct entry {
     int used;
@@ -33,6 +35,7 @@ struct entry {
 };
 
 static struct entry store[STORE_CAP];
+static pthread_mutex_t store_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static long long now_ms(void) {
     struct timespec ts;
@@ -132,18 +135,23 @@ static int parse_ttl(const char *s, size_t len, long *out) {
 
 /* Handle one stripped line (no trailing \n, no trailing \r). */
 static int handle_line(int fd, char *line) {
-    long long now = now_ms();
-
     if (strncmp(line, "GET ", 4) == 0) {
         char *key = line + 4;
+        char value[VALUE_MAX + 1];
         if (!valid_key(key, strlen(key))) {
             return send_reply(fd, "ERROR\n");
         }
+
+        (void)pthread_mutex_lock(&store_mutex);
+        long long now = now_ms();
         int idx = lookup(key, now);
         if (idx < 0) {
+            (void)pthread_mutex_unlock(&store_mutex);
             return send_reply(fd, "NOT_FOUND\n");
         }
-        return send_reply(fd, "VALUE %s\n", store[idx].value);
+        memcpy(value, store[idx].value, store[idx].vlen + 1);
+        (void)pthread_mutex_unlock(&store_mutex);
+        return send_reply(fd, "VALUE %s\n", value);
     }
 
     if (strncmp(line, "DELETE ", 7) == 0) {
@@ -151,11 +159,16 @@ static int handle_line(int fd, char *line) {
         if (!valid_key(key, strlen(key))) {
             return send_reply(fd, "ERROR\n");
         }
+
+        (void)pthread_mutex_lock(&store_mutex);
+        long long now = now_ms();
         int idx = lookup(key, now);
         if (idx < 0) {
+            (void)pthread_mutex_unlock(&store_mutex);
             return send_reply(fd, "NOT_FOUND\n");
         }
         store[idx].used = 0;
+        (void)pthread_mutex_unlock(&store_mutex);
         return send_reply(fd, "OK\n");
     }
 
@@ -188,10 +201,13 @@ static int handle_line(int fd, char *line) {
             return send_reply(fd, "ERROR\n");
         }
 
+        (void)pthread_mutex_lock(&store_mutex);
+        long long now = now_ms();
         int idx = lookup(key, now);
         if (idx < 0) {
             idx = free_slot(now);
             if (idx < 0) {
+                (void)pthread_mutex_unlock(&store_mutex);
                 return send_reply(fd, "ERROR\n");
             }
         }
@@ -205,6 +221,7 @@ static int handle_line(int fd, char *line) {
             store[idx].has_expiry = 1;
             store[idx].expires_at_ms = now + ttl * 1000LL;
         }
+        (void)pthread_mutex_unlock(&store_mutex);
         return send_reply(fd, "OK\n");
     }
 
@@ -212,8 +229,8 @@ static int handle_line(int fd, char *line) {
 }
 
 static void handle_client(int fd) {
-    /* The server is single-threaded, so one reusable buffer is sufficient. */
-    static char pending[LINE_MAX + 1];
+    /* Each client owns its pending input while the store remains shared. */
+    char pending[LINE_MAX + 1];
     size_t pending_len = 0;
     char chunk[RECV_BUF];
 
@@ -276,6 +293,14 @@ static void handle_client(int fd) {
     }
 }
 
+static void *client_thread(void *argument) {
+    int fd = *(int *)argument;
+    free(argument);
+    handle_client(fd);
+    close(fd);
+    return NULL;
+}
+
 static void usage(const char *prog) {
     fprintf(stderr,
             "Usage: %s [--listen-host HOST] [--listen-port PORT]\n",
@@ -330,7 +355,7 @@ int main(int argc, char **argv) {
         close(listener);
         return 1;
     }
-    if (listen(listener, 1) != 0) {
+    if (listen(listener, LISTEN_BACKLOG) != 0) {
         perror("listen");
         close(listener);
         return 1;
@@ -338,7 +363,7 @@ int main(int argc, char **argv) {
     printf("serving cache on %s:%d ...\n", host, port);
     fflush(stdout);
 
-    /* Serve one connection at a time while the process-wide store persists. */
+    /* Keep the process-wide store shared while clients run independently. */
     for (;;) {
         int client = accept(listener, NULL, NULL);
         if (client < 0) {
@@ -348,7 +373,20 @@ int main(int argc, char **argv) {
             perror("accept");
             continue;
         }
-        handle_client(client);
-        close(client);
+
+        int *client_argument = malloc(sizeof(*client_argument));
+        if (client_argument == NULL) {
+            close(client);
+            continue;
+        }
+        *client_argument = client;
+
+        pthread_t thread;
+        if (pthread_create(&thread, NULL, client_thread, client_argument) != 0) {
+            free(client_argument);
+            close(client);
+            continue;
+        }
+        (void)pthread_detach(thread);
     }
 }

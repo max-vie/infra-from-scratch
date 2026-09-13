@@ -20,15 +20,15 @@ The process stores up to 1024 live keys. Expired keys behave as missing and
 their slots are reclaimed when needed. There is no background sweeper,
 eviction, persistence, or authentication yet.
 
-The server handles one client connection at a time while keeping stored keys
-across connections.
+Each client connection runs in its own POSIX thread while the process-wide store
+remains shared and mutex-protected. Stored keys survive across connections.
 
 ## Run
 
 Build the cache from the project root:
 
 ```bash
-gcc -std=c11 -Wall -Wextra -O2 -o in-mem-cache/server in-mem-cache/server.c
+gcc -std=c11 -Wall -Wextra -O2 -pthread -o in-mem-cache/server in-mem-cache/server.c
 ```
 
 Start it on the default local address:

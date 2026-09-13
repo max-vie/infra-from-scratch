@@ -1,8 +1,10 @@
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
@@ -67,6 +69,7 @@ class TestInMemCache(unittest.TestCase):
                 "-Werror",
                 "-pedantic",
                 "-O2",
+                "-pthread",
                 "-o",
                 str(cls.server_bin),
                 str(SERVER_SRC),
@@ -211,6 +214,60 @@ class TestInMemCache(unittest.TestCase):
             self.assertEqual(second.command(b"GET foo"), b"VALUE bar\n")
         finally:
             second.close()
+
+    def test_handles_another_client_while_first_client_is_incomplete(self):
+        cache_port = self.start_cache()
+        slow_socket = socket.create_connection((HOST, cache_port), timeout=2)
+        try:
+            slow_socket.sendall(b"GET blocked")
+            time.sleep(0.05)
+
+            fast = CacheConnection(cache_port)
+            fast.socket.settimeout(1)
+            try:
+                self.assertEqual(
+                    fast.command(b"SET fast 0 value"),
+                    b"OK\n",
+                )
+                self.assertEqual(
+                    fast.command(b"GET fast"),
+                    b"VALUE value\n",
+                )
+            finally:
+                fast.close()
+        finally:
+            slow_socket.close()
+
+    def test_keeps_concurrent_client_replies_and_values_intact(self):
+        cache_port = self.start_cache()
+        barrier = threading.Barrier(4)
+
+        def set_and_get(index):
+            connection = CacheConnection(cache_port)
+            connection.socket.settimeout(2)
+            try:
+                barrier.wait(timeout=2)
+                key = f"key-{index}".encode()
+                value = f"value-{index}".encode()
+                return (
+                    connection.command(b"SET " + key + b" 0 " + value),
+                    connection.command(b"GET " + key),
+                )
+            finally:
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=4) as workers:
+            replies = list(workers.map(set_and_get, range(4)))
+
+        self.assertEqual(
+            replies,
+            [
+                (b"OK\n", b"VALUE value-0\n"),
+                (b"OK\n", b"VALUE value-1\n"),
+                (b"OK\n", b"VALUE value-2\n"),
+                (b"OK\n", b"VALUE value-3\n"),
+            ],
+        )
 
     def test_rejects_malformed_commands(self):
         cache_port = self.start_cache()

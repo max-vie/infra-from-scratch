@@ -2,11 +2,15 @@ import argparse
 import socket
 import threading
 
-from application import Request, respond
+from application import Request, Response, respond
+from cache_client import CacheClient, CacheError
 
 
 # Bind on all IPv4 interfaces so the server can accept local or LAN requests.
 HOST, PORT = "0.0.0.0", 8088
+DEFAULT_CACHE_PORT = 11211
+CACHE_KEY = "http:/hello"
+CACHE_TTL = 60
 BUFFER_SIZE = 4096
 MAX_REQUEST_SIZE = 64 * 1024
 SUPPORTED_VERSIONS = {"HTTP/1.0", "HTTP/1.1"}
@@ -109,14 +113,41 @@ def build_response(status, body, headers=()):
     return "\r\n".join(response_headers).encode("ascii") + body
 
 
-def handle_connection(connection):
+def respond_with_cache(request, cache):
+    if cache is None or request.method != "GET" or request.target != "/hello":
+        return respond(request)
+
+    try:
+        cached_body = cache.get(CACHE_KEY)
+    except CacheError:
+        return respond(request)
+
+    if cached_body is not None:
+        return Response("200 OK", cached_body + b"\n")
+
+    application_response = respond(request)
+    cache_value = (
+        application_response.body[:-1]
+        if application_response.body.endswith(b"\n")
+        else application_response.body
+    )
+    try:
+        cache.set(CACHE_KEY, cache_value, CACHE_TTL)
+    except CacheError:
+        pass
+    return application_response
+
+
+def handle_connection(connection, cache=None):
     # Parse one request, prepare exactly one response, and close the connection.
     with connection:
         try:
             method, target, _version, headers = parse_request(read_request(connection))
             if {"content-length", "transfer-encoding"} & headers.keys():
                 raise ValueError("request bodies are not supported")
-            application_response = respond(Request(method, target))
+            application_response = respond_with_cache(
+                Request(method, target), cache
+            )
             response = build_response(
                 application_response.status,
                 application_response.body,
@@ -131,7 +162,7 @@ def handle_connection(connection):
             pass
 
 
-def serve(host=HOST, port=PORT):
+def serve(host=HOST, port=PORT, cache=None):
     # Listen for one request per connection.
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listen_socket:
         listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -145,7 +176,7 @@ def serve(host=HOST, port=PORT):
             # block others.
             threading.Thread(
                 target=handle_connection,
-                args=(client_connection,),
+                args=(client_connection, cache),
                 daemon=True,
             ).start()
 
@@ -154,12 +185,19 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Serve the minimal HTTP application")
     parser.add_argument("--host", default=HOST)
     parser.add_argument("--port", type=port, default=PORT)
+    parser.add_argument("--cache-host")
+    parser.add_argument("--cache-port", type=port, default=DEFAULT_CACHE_PORT)
     return parser.parse_args(argv)
 
 
 def main(argv=None):
     args = parse_args(argv)
-    serve(host=args.host, port=args.port)
+    cache = (
+        CacheClient(args.cache_host, args.cache_port)
+        if args.cache_host
+        else None
+    )
+    serve(host=args.host, port=args.port, cache=cache)
 
 
 if __name__ == "__main__":

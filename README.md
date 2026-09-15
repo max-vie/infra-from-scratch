@@ -23,16 +23,20 @@ flowchart LR
     Balancer[Load balancer]
     ServerA[HTTP server A]
     ServerB[HTTP server B]
+    Cache[In-memory cache<br/>optional /hello]
 
     DNS -. resolved address .-> Client
     Client -->|GET /health| Proxy
     Proxy --> Balancer
     Balancer --> ServerA
     Balancer --> ServerB
+    ServerA -. cache /hello .-> Cache
+    ServerB -. cache /hello .-> Cache
 ```
 
-The custom HTTP client drives the integrated request path. The in-memory cache
-remains a standalone component with its own tests.
+The custom HTTP client drives the integrated request path. The HTTP servers can
+optionally use the in-memory cache for `GET /hello`; the cache also remains a
+standalone component with its own tests.
 
 ## Components
 
@@ -42,7 +46,7 @@ remains a standalone component with its own tests.
 | [DNS server](dns-server/) | Go | Working | UDP, binary message parsing, and DNS records |
 | [Reverse proxy](reverse-proxy/) | Go | Working | Concurrent clients, request forwarding, and gateway failures |
 | [Load balancer](load-balancer/) | Go | Working | Round-robin selection and backend failover |
-| [In-memory cache](in-mem-cache/) | C | Working, standalone | TCP text protocol, bounded storage, and lazy expiry |
+| [In-memory cache](in-mem-cache/) | C | Working, optional | TCP text protocol, bounded storage, lazy expiry, and HTTP `/hello` caching |
 | Container runtime | C | Planned | Linux process and filesystem isolation |
 
 Each component owns its source, tests, documentation, and architecture
@@ -50,7 +54,7 @@ decisions. Cross-component decisions live in [`docs/`](docs/).
 
 ## Run the integrated path
 
-You need Python 3 and Go. No package installation is required.
+You need Python 3, Go, and GCC. No package installation is required.
 
 ```bash
 git clone https://github.com/max-vie/infra-from-scratch.git
@@ -58,8 +62,8 @@ cd infra-from-scratch
 python -m unittest discover -s integration-tests -v
 ```
 
-The test starts every service on temporary local ports, sends requests through
-the stack, and shuts the processes down afterward.
+The test compiles and starts every service on temporary local ports, sends
+requests through the stack, and shuts the processes down afterward.
 
 GCC with C11 support is also required to build and test the in-memory cache.
 See the component READMEs for individual run commands and supported behavior.
@@ -85,10 +89,12 @@ The same checks run in GitHub Actions for pull requests and pushes to `main`.
 This is a learning project with deliberately small interfaces. The HTTP path
 does not support TLS, request bodies, persistent connections, or chunked
 transfer encoding. The DNS server owns one local record, the load balancer has
-two fixed backends, and the cache has no persistence or authentication.
+two fixed backends, and the cache has no persistence or authentication. The
+HTTP cache path only covers the deterministic `/hello` response and fails open
+when the optional cache cannot be reached.
 
-Possible next steps include connecting the cache to the tested path, building
-the container runtime, and exploring service discovery and observability.
+Possible next steps include building the container runtime and exploring
+service discovery and observability.
 
 ## Feedback and license
 

@@ -16,6 +16,10 @@ The server reads one request through `\r\n\r\n`, limits the header block to 64
 KiB, and closes the connection after responding. It handles each client in its
 own thread, so a slow request does not block other clients.
 
+Pass `--cache-host HOST --cache-port PORT` to enable an optional cache-aside
+path for `GET /hello`. It stores the response body with a 60-second TTL and
+serves the origin response when the cache is missing or unavailable.
+
 | Request | Response |
 | --- | --- |
 | `GET /` | `200 OK` and `HELLO WORLD!` |
@@ -34,6 +38,14 @@ Start the server from the project root:
 
 ```bash
 python http-server/server.py --host 127.0.0.1 --port 8088
+```
+
+Start it with the optional cache integration:
+
+```bash
+python http-server/server.py \
+  --host 127.0.0.1 --port 8088 \
+  --cache-host 127.0.0.1 --cache-port 11211
 ```
 
 In another terminal, send a request with the custom client:

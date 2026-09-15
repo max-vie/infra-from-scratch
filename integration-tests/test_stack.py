@@ -1,6 +1,7 @@
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -9,13 +10,16 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "http-server"))
 
+from cache_client import CacheClient
 from client import DNSResolver, URL
+from server import CACHE_KEY
 
 
 HTTP_DIR = ROOT / "http-server"
 LOAD_BALANCER_DIR = ROOT / "load-balancer"
 REVERSE_PROXY_DIR = ROOT / "reverse-proxy"
 DNS_DIR = ROOT / "dns-server"
+CACHE_SOURCE = ROOT / "in-mem-cache" / "server.c"
 HOST = "127.0.0.1"
 
 
@@ -51,6 +55,31 @@ def wait_for_tcp_port(process, port):
 
 
 class TestStack(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.build_dir = tempfile.TemporaryDirectory()
+        cls.cache_binary = Path(cls.build_dir.name) / "cache-server"
+        subprocess.run(
+            [
+                "gcc",
+                "-std=c11",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-pedantic",
+                "-O2",
+                "-pthread",
+                "-o",
+                str(cls.cache_binary),
+                str(CACHE_SOURCE),
+            ],
+            check=True,
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.build_dir.cleanup()
+
     def setUp(self):
         self.processes = []
 
@@ -74,7 +103,20 @@ class TestStack(unittest.TestCase):
                     process.kill()
                     process.wait()
 
-    def start_http_dns_load_balancer(self):
+    def start_cache(self):
+        cache_port = free_port()
+        cache = self.start_process(
+            str(self.cache_binary),
+            "--listen-host",
+            HOST,
+            "--listen-port",
+            str(cache_port),
+        )
+        wait_for_tcp_port(cache, cache_port)
+        return cache_port
+
+    def start_http_dns_load_balancer(self, cache_available=True):
+        cache_port = self.start_cache() if cache_available else free_port()
         backend_ports = []
         for _ in range(2):
             backend_port = free_port()
@@ -86,6 +128,10 @@ class TestStack(unittest.TestCase):
                 HOST,
                 "--port",
                 str(backend_port),
+                "--cache-host",
+                HOST,
+                "--cache-port",
+                str(cache_port),
                 cwd=HTTP_DIR,
             )
             wait_for_tcp_port(backend, backend_port)
@@ -119,24 +165,9 @@ class TestStack(unittest.TestCase):
         load_balancer = self.start_process(*command, cwd=LOAD_BALANCER_DIR)
         wait_for_tcp_port(load_balancer, load_balancer_port)
 
-        return resolver, load_balancer_port
+        return resolver, load_balancer_port, cache_port
 
-    def test_dns_load_balancer_and_http_servers_work_together(self):
-        resolver, load_balancer_port = self.start_http_dns_load_balancer()
-
-        responses = [
-            URL(f"app.local:{load_balancer_port}/health").request(
-                resolver=resolver
-            )
-            for _ in range(2)
-        ]
-        for response in responses:
-            self.assertEqual(response.status, 200)
-            self.assertEqual(response.body, b"OK\n")
-
-    def test_dns_reverse_proxy_load_balancer_and_http_servers_work_together(self):
-        resolver, load_balancer_port = self.start_http_dns_load_balancer()
-
+    def start_reverse_proxy(self, load_balancer_port):
         proxy_port = free_port()
         proxy = self.start_process(
             "go",
@@ -153,6 +184,24 @@ class TestStack(unittest.TestCase):
             cwd=REVERSE_PROXY_DIR,
         )
         wait_for_tcp_port(proxy, proxy_port)
+        return proxy_port
+
+    def test_dns_load_balancer_and_http_servers_work_together(self):
+        resolver, load_balancer_port, _ = self.start_http_dns_load_balancer()
+
+        responses = [
+            URL(f"app.local:{load_balancer_port}/health").request(
+                resolver=resolver
+            )
+            for _ in range(2)
+        ]
+        for response in responses:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.body, b"OK\n")
+
+    def test_dns_reverse_proxy_load_balancer_and_http_servers_work_together(self):
+        resolver, load_balancer_port, _ = self.start_http_dns_load_balancer()
+        proxy_port = self.start_reverse_proxy(load_balancer_port)
 
         response = URL(f"app.local:{proxy_port}/health").request(
             resolver=resolver
@@ -160,6 +209,41 @@ class TestStack(unittest.TestCase):
 
         self.assertEqual(response.status, 200)
         self.assertEqual(response.body, b"OK\n")
+
+    def test_cache_populates_and_serves_cached_body_through_full_path(self):
+        resolver, load_balancer_port, cache_port = (
+            self.start_http_dns_load_balancer()
+        )
+        proxy_port = self.start_reverse_proxy(load_balancer_port)
+        cache = CacheClient(HOST, cache_port)
+
+        self.assertIsNone(cache.get(CACHE_KEY))
+        first = URL(f"app.local:{proxy_port}/hello").request(
+            resolver=resolver
+        )
+        self.assertEqual(first.status, 200)
+        self.assertEqual(first.body, b"HELLO WORLD!\n")
+        self.assertEqual(cache.get(CACHE_KEY), b"HELLO WORLD!")
+
+        cache.set(CACHE_KEY, b"CACHED", 0)
+        second = URL(f"app.local:{proxy_port}/hello").request(
+            resolver=resolver
+        )
+        self.assertEqual(second.status, 200)
+        self.assertEqual(second.body, b"CACHED\n")
+
+    def test_unavailable_cache_does_not_break_full_path(self):
+        resolver, load_balancer_port, _ = self.start_http_dns_load_balancer(
+            cache_available=False
+        )
+        proxy_port = self.start_reverse_proxy(load_balancer_port)
+
+        response = URL(f"app.local:{proxy_port}/hello").request(
+            resolver=resolver
+        )
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.body, b"HELLO WORLD!\n")
 
 
 if __name__ == "__main__":

@@ -23,6 +23,10 @@ eviction, persistence, or authentication yet.
 Each client connection runs in its own POSIX thread while the process-wide store
 remains shared and mutex-protected. Stored keys survive across connections.
 
+The HTTP server can optionally use this cache for `GET /hello` through
+`--cache-host` and `--cache-port`. The integration stores the body under
+`http:/hello` with a 60-second TTL.
+
 ## Run
 
 Build the cache from the project root:

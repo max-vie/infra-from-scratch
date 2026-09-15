@@ -65,11 +65,26 @@ class TestRequestParsing(unittest.TestCase):
         self.assertEqual(args.host, "127.0.0.1")
         self.assertEqual(args.port, 18088)
 
+    def test_parses_cache_options(self):
+        args = parse_args(
+            [
+                "--cache-host",
+                "127.0.0.1",
+                "--cache-port",
+                "11212",
+            ]
+        )
+
+        self.assertEqual(args.cache_host, "127.0.0.1")
+        self.assertEqual(args.cache_port, 11212)
+
     def test_defaults_to_wildcard_listener(self):
         args = parse_args([])
 
         self.assertEqual(args.host, "0.0.0.0")
         self.assertEqual(args.port, 8088)
+        self.assertIsNone(args.cache_host)
+        self.assertEqual(args.cache_port, 11211)
 
     def test_rejects_invalid_port(self):
         with contextlib.redirect_stderr(io.StringIO()):

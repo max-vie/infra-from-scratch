@@ -45,7 +45,7 @@ standalone component with its own tests.
 | [HTTP client and server](http-server/) | Python | Working | URL parsing, HTTP messages, sockets, and application routing |
 | [DNS server](dns-server/) | Go | Working | UDP, binary message parsing, and DNS records |
 | [Reverse proxy](reverse-proxy/) | Go | Working | Concurrent clients, request forwarding, and gateway failures |
-| [Load balancer](load-balancer/) | Go | Working | Round-robin selection and backend failover |
+| [Load balancer](load-balancer/) | Go | Working | Round-robin selection, failover, and passive backend health |
 | [In-memory cache](in-mem-cache/) | C | Working, optional | TCP text protocol, bounded storage, lazy expiry, and HTTP `/hello` caching |
 | Container runtime | C | Planned | Linux process and filesystem isolation |
 

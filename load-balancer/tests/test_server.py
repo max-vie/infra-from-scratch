@@ -1,8 +1,10 @@
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
+from pathlib import Path
 
 
 HOST = "127.0.0.1"
@@ -59,6 +61,30 @@ with socket.socket() as listener:
             struct.pack("ii", 1, 0),
         )
 """
+FAILING_BACKEND_SCRIPT = r"""
+import pathlib
+import socket
+import struct
+import sys
+
+count_path = pathlib.Path(sys.argv[2])
+
+with socket.socket() as listener:
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", int(sys.argv[1])))
+    listener.listen(5)
+    while True:
+        connection, _ = listener.accept()
+        with connection:
+            if connection.recv(4096):
+                with count_path.open("a") as count:
+                    count.write("x")
+                connection.setsockopt(
+                    socket.SOL_SOCKET,
+                    socket.SO_LINGER,
+                    struct.pack("ii", 1, 0),
+                )
+"""
 
 
 def free_port():
@@ -83,6 +109,7 @@ def wait_for_port(port):
 class TestLoadBalancer(unittest.TestCase):
     def setUp(self):
         self.processes = []
+        self.test_directory = tempfile.TemporaryDirectory()
 
     def start_process(self, command, cwd):
         process = subprocess.Popen(
@@ -96,12 +123,38 @@ class TestLoadBalancer(unittest.TestCase):
 
     def start_backend(self, body):
         backend_port = free_port()
+        return self.start_backend_at_port(backend_port, body)
+
+    def start_backend_at_port(self, backend_port, body):
         self.start_process(
             [sys.executable, "-c", BACKEND_SCRIPT, str(backend_port), body],
             cwd=".",
         )
         wait_for_port(backend_port)
         return HOST, backend_port
+
+    def start_failing_backend(self):
+        backend_port = free_port()
+        count_path = Path(self.test_directory.name) / "failures"
+        self.start_process(
+            [
+                sys.executable,
+                "-c",
+                FAILING_BACKEND_SCRIPT,
+                str(backend_port),
+                str(count_path),
+            ],
+            cwd=".",
+        )
+        wait_for_port(backend_port)
+        return (HOST, backend_port), count_path
+
+    @staticmethod
+    def failure_count(count_path):
+        try:
+            return len(count_path.read_text())
+        except FileNotFoundError:
+            return 0
 
     def start_load_balancer(self, backends):
         load_balancer_port = free_port()
@@ -140,6 +193,7 @@ class TestLoadBalancer(unittest.TestCase):
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait()
+        self.test_directory.cleanup()
 
     def test_round_robins_between_two_backends(self):
         backends = [
@@ -192,6 +246,40 @@ class TestLoadBalancer(unittest.TestCase):
 
         self.assertIn(b"backend-b", first_response)
         self.assertIn(b"backend-b", second_response)
+
+    def test_skips_backend_after_pre_response_failure(self):
+        failing_backend, count_path = self.start_failing_backend()
+        live_backend = self.start_backend("backend-b")
+        load_balancer_port = self.start_load_balancer(
+            [failing_backend, live_backend]
+        )
+        request = b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+
+        responses = [
+            self.request(load_balancer_port, request)
+            for _ in range(3)
+        ]
+
+        for response in responses:
+            self.assertIn(b"backend-b", response)
+        self.assertEqual(self.failure_count(count_path), 1)
+
+    def test_retries_backend_after_health_cooldown(self):
+        unavailable_port = free_port()
+        live_backend = self.start_backend("backend-b")
+        load_balancer_port = self.start_load_balancer(
+            [(HOST, unavailable_port), live_backend]
+        )
+        request = b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+
+        self.assertIn(b"backend-b", self.request(load_balancer_port, request))
+        self.start_backend_at_port(unavailable_port, "recovered")
+        self.assertIn(b"backend-b", self.request(load_balancer_port, request))
+        time.sleep(1.2)
+
+        response = self.request(load_balancer_port, request)
+
+        self.assertIn(b"recovered", response)
 
     def test_returns_bad_gateway_when_both_backends_unavailable(self):
         backends = [(HOST, free_port()), (HOST, free_port())]

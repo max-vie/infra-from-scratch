@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -21,6 +22,7 @@ const (
 	bufferSize        = 4096
 	maxRequestSize    = 64 * 1024
 	socketTimeout     = 5 * time.Second
+	healthCooldown    = 1 * time.Second
 )
 
 var unsupportedBodyHeaders = []string{"content-length", "transfer-encoding"}
@@ -28,6 +30,37 @@ var unsupportedBodyHeaders = []string{"content-length", "transfer-encoding"}
 var errRequestTooLarge = errors.New("request headers are too large")
 
 type backendFlags []string
+
+type backendPool struct {
+	addresses []string
+	retryAt   []time.Time
+	mutex     sync.Mutex
+}
+
+func newBackendPool(addresses []string) *backendPool {
+	return &backendPool{
+		addresses: addresses,
+		retryAt:   make([]time.Time, len(addresses)),
+	}
+}
+
+func (pool *backendPool) available(index int) bool {
+	pool.mutex.Lock()
+	defer pool.mutex.Unlock()
+	return pool.retryAt[index].IsZero() || !time.Now().Before(pool.retryAt[index])
+}
+
+func (pool *backendPool) markFailure(index int) {
+	pool.mutex.Lock()
+	pool.retryAt[index] = time.Now().Add(healthCooldown)
+	pool.mutex.Unlock()
+}
+
+func (pool *backendPool) markSuccess(index int) {
+	pool.mutex.Lock()
+	pool.retryAt[index] = time.Time{}
+	pool.mutex.Unlock()
+}
 
 func (flags *backendFlags) String() string {
 	return strings.Join(*flags, ", ")
@@ -94,6 +127,7 @@ func serve(listenAddress string, backendAddresses []string) error {
 		return err
 	}
 	defer listener.Close()
+	pool := newBackendPool(backendAddresses)
 
 	fmt.Printf(
 		"serving load balancer on %s with %d backends\n",
@@ -110,12 +144,12 @@ func serve(listenAddress string, backendAddresses []string) error {
 		}
 		go func(connection net.Conn) {
 			defer connection.Close()
-			handleConnection(connection, backendAddresses, &selection)
+			handleConnection(connection, pool, &selection)
 		}(client)
 	}
 }
 
-func handleConnection(client net.Conn, backendAddresses []string, selection *atomic.Uint64) {
+func handleConnection(client net.Conn, pool *backendPool, selection *atomic.Uint64) {
 	// Validate the request before choosing a backend.
 	_ = client.SetDeadline(time.Now().Add(socketTimeout))
 
@@ -129,9 +163,13 @@ func handleConnection(client net.Conn, backendAddresses []string, selection *ato
 	}
 
 	// Claim this request's starting backend so concurrent clients still alternate.
-	initialIndex := int(selection.Add(1)-1) % len(backendAddresses)
-	for offset := range len(backendAddresses) {
-		selectedBackend := backendAddresses[(initialIndex+offset)%len(backendAddresses)]
+	initialIndex := int(selection.Add(1)-1) % len(pool.addresses)
+	for offset := range len(pool.addresses) {
+		backendIndex := (initialIndex + offset) % len(pool.addresses)
+		if !pool.available(backendIndex) {
+			continue
+		}
+		selectedBackend := pool.addresses[backendIndex]
 		responseStarted := false
 
 		backend, err := net.DialTimeout("tcp", selectedBackend, socketTimeout)
@@ -141,6 +179,7 @@ func handleConnection(client net.Conn, backendAddresses []string, selection *ato
 			backend.Close()
 		}
 		if err == nil {
+			pool.markSuccess(backendIndex)
 			return
 		}
 		if responseStarted {
@@ -148,10 +187,9 @@ func handleConnection(client net.Conn, backendAddresses []string, selection *ato
 			// or append another error.
 			return
 		}
-		if offset == len(backendAddresses)-1 {
-			sendError(client, "502 Bad Gateway", []byte("Bad Gateway\n"))
-		}
+		pool.markFailure(backendIndex)
 	}
+	sendError(client, "502 Bad Gateway", []byte("Bad Gateway\n"))
 }
 
 func relay(backend, client net.Conn, request []byte, responseStarted *bool) error {

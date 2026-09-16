@@ -7,13 +7,14 @@ requests to two fixed backends in round-robin order.
 
 The load balancer validates one header-terminated request before selecting a
 backend. It handles each client in its own goroutine, so a slow or incomplete
-request does not block other clients. Successive valid requests alternate
-between the two backends. If the selected backend cannot connect before
-response bytes reach the client, the balancer tries the other backend once. It
-returns `502 Bad Gateway` only when both backends fail.
+request does not block other clients. Successive valid requests use the two
+backends in round-robin order while both are available. A backend that fails
+before response bytes reach the client is skipped for one second, then tried
+again. The balancer tries the other backend when needed and returns `502 Bad
+Gateway` when no backend can serve the request.
 
-It does not run health checks, remove failed backends, use weights, terminate
-TLS, or support request bodies and persistent connections.
+It does not run active health checks, remove failed backends, use weights,
+terminate TLS, or support request bodies and persistent connections.
 
 ## Run
 

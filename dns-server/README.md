@@ -9,6 +9,9 @@ The server accepts one-question DNS queries over IPv4 UDP. It returns a fixed A
 record for `app.local`, returns `NXDOMAIN` for unknown names, and ignores
 malformed messages it cannot parse.
 
+It returns `NOTIMP` for unsupported query operations and DNS classes. Queries
+for other record types at `app.local` return an empty `NOERROR` response.
+
 It does not perform recursive resolution, caching, zone loading, or DNS over
 TCP.
 

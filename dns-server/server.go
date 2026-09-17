@@ -62,13 +62,23 @@ func listenAddress(host string, port int) (string, error) {
 }
 
 func makeResponse(query []byte) []byte {
-	// A DNS header is 12 bytes; this MVP accepts one question.
-	if len(query) < headerSize || binary.BigEndian.Uint16(query[4:6]) != 1 {
+	// A DNS header is 12 bytes.
+	if len(query) < headerSize {
 		return nil
 	}
 
 	queryFlags := binary.BigEndian.Uint16(query[2:4])
 	if queryFlags&0x8000 != 0 {
+		return nil
+	}
+	if queryFlags&0x7800 != 0 {
+		response := make([]byte, headerSize)
+		copy(response[0:2], query[0:2])
+		// Keep the opcode and recursion request in the error response.
+		binary.BigEndian.PutUint16(response[2:4], 0x8004|queryFlags&0x7900)
+		return response
+	}
+	if binary.BigEndian.Uint16(query[4:6]) != 1 {
 		return nil
 	}
 
@@ -98,13 +108,15 @@ func makeResponse(query []byte) []byte {
 	queryType := binary.BigEndian.Uint16(query[position:])
 	queryClass := binary.BigEndian.Uint16(query[position+2:])
 
-	// Return the fixed A record or NXDOMAIN for an unknown name.
+	// Select the response code and optional A record.
 	flags := uint16(0x8400) | queryFlags&0x0100
 	var answer []byte
 	answerCount := uint16(0)
-	if !bytes.EqualFold(query[headerSize:position], recordName) {
+	if queryClass != classIN {
+		flags = 0x8004 | queryFlags&0x0100
+	} else if !bytes.EqualFold(query[headerSize:position], recordName) {
 		flags = 0x8403 | queryFlags&0x0100
-	} else if queryType == typeA && queryClass == classIN {
+	} else if queryType == typeA {
 		answerCount = 1
 		answer = []byte{
 			0xc0, 0x0c, // Pointer to the name in the question.

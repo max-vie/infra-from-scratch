@@ -80,6 +80,42 @@ func TestMakeResponseUnsupportedType(t *testing.T) {
 	}
 }
 
+func TestMakeResponseUnsupportedClass(t *testing.T) {
+	query := dnsQuery("app.local", typeA)
+	binary.BigEndian.PutUint16(query[len(query)-2:], 3)
+	response := makeResponse(query)
+	if response == nil {
+		t.Fatal("expected a DNS response")
+	}
+	if got := binary.BigEndian.Uint16(response[2:4]); got != 0x8104 {
+		t.Fatalf("flags = %#04x, want NOTIMP without authoritative answer", got)
+	}
+	if got := binary.BigEndian.Uint16(response[6:8]); got != 0 {
+		t.Fatalf("answer count = %d, want 0", got)
+	}
+	if !bytes.Equal(response[headerSize:], query[headerSize:]) {
+		t.Fatal("response did not preserve the question")
+	}
+}
+
+func TestMakeResponseUnsupportedOpcode(t *testing.T) {
+	query := dnsQuery("app.local", typeA)
+	binary.BigEndian.PutUint16(query[2:4], 0x1100) // Opcode 2, recursion requested.
+	response := makeResponse(query[:headerSize])
+	if response == nil {
+		t.Fatal("expected a DNS response")
+	}
+	if got := binary.BigEndian.Uint16(response[2:4]); got != 0x9104 {
+		t.Fatalf("flags = %#04x, want opcode and NOTIMP", got)
+	}
+	if got := binary.BigEndian.Uint16(response[4:6]); got != 0 {
+		t.Fatalf("question count = %d, want 0", got)
+	}
+	if len(response) != headerSize || !bytes.Equal(response[:2], query[:2]) {
+		t.Fatal("expected header-only response with original transaction ID")
+	}
+}
+
 func TestMakeResponseRejectsMalformedQueries(t *testing.T) {
 	validQuery := dnsQuery("app.local", typeA)
 	zeroQuestions := append([]byte(nil), validQuery...)

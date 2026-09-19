@@ -24,6 +24,7 @@
 #define TTL_MAX 86400
 #define RECV_BUF 4096
 #define LISTEN_BACKLOG 16
+#define CLIENT_LIMIT 32
 
 struct entry {
     int used;
@@ -36,6 +37,25 @@ struct entry {
 
 static struct entry store[STORE_CAP];
 static pthread_mutex_t store_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t client_count_mutex = PTHREAD_MUTEX_INITIALIZER;
+static size_t active_clients;
+
+static int reserve_client_slot(void) {
+    int reserved = 0;
+    (void)pthread_mutex_lock(&client_count_mutex);
+    if (active_clients < CLIENT_LIMIT) {
+        active_clients++;
+        reserved = 1;
+    }
+    (void)pthread_mutex_unlock(&client_count_mutex);
+    return reserved;
+}
+
+static void release_client_slot(void) {
+    (void)pthread_mutex_lock(&client_count_mutex);
+    active_clients--;
+    (void)pthread_mutex_unlock(&client_count_mutex);
+}
 
 static long long now_ms(void) {
     struct timespec ts;
@@ -298,6 +318,7 @@ static void *client_thread(void *argument) {
     free(argument);
     handle_client(fd);
     close(fd);
+    release_client_slot();
     return NULL;
 }
 
@@ -373,9 +394,15 @@ int main(int argc, char **argv) {
             perror("accept");
             continue;
         }
+        if (!reserve_client_slot()) {
+            (void)send_all(client, "ERROR\n", 6);
+            close(client);
+            continue;
+        }
 
         int *client_argument = malloc(sizeof(*client_argument));
         if (client_argument == NULL) {
+            release_client_slot();
             close(client);
             continue;
         }
@@ -384,6 +411,7 @@ int main(int argc, char **argv) {
         pthread_t thread;
         if (pthread_create(&thread, NULL, client_thread, client_argument) != 0) {
             free(client_argument);
+            release_client_slot();
             close(client);
             continue;
         }

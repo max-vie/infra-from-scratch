@@ -12,6 +12,7 @@ SERVER_DIR = Path(__file__).parents[1]
 SERVER_SRC = SERVER_DIR / "server.c"
 
 HOST = "127.0.0.1"
+CLIENT_LIMIT = 32
 
 
 def free_port():
@@ -268,6 +269,44 @@ class TestInMemCache(unittest.TestCase):
                 (b"OK\n", b"VALUE value-3\n"),
             ],
         )
+
+    def test_limits_concurrent_clients_and_accepts_after_disconnect(self):
+        cache_port = self.start_cache()
+        time.sleep(0.05)
+        clients = []
+        try:
+            for _ in range(CLIENT_LIMIT):
+                client = CacheConnection(cache_port)
+                client.socket.settimeout(1)
+                client.socket.sendall(b"GET blocked")
+                clients.append(client)
+
+            rejected = CacheConnection(cache_port)
+            rejected.socket.settimeout(1)
+            try:
+                self.assertEqual(rejected.file.readline(), b"ERROR\n")
+            finally:
+                rejected.close()
+
+            self.assertEqual(clients[0].command(b"\n"), b"NOT_FOUND\n")
+            clients.pop(0).close()
+
+            deadline = time.monotonic() + 1
+            while True:
+                replacement = CacheConnection(cache_port)
+                replacement.socket.settimeout(1)
+                try:
+                    reply = replacement.command(b"GET missing")
+                finally:
+                    replacement.close()
+                if reply == b"NOT_FOUND\n":
+                    break
+                if time.monotonic() >= deadline:
+                    self.fail("cache did not accept a client after a slot opened")
+                time.sleep(0.01)
+        finally:
+            for client in clients:
+                client.close()
 
     def test_rejects_malformed_commands(self):
         cache_port = self.start_cache()

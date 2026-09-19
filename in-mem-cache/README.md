@@ -15,13 +15,16 @@ spaces, TTL is `0`–`86400` seconds with `0` meaning no expiry.
 | `GET <key>` | `VALUE <value>` or `NOT_FOUND` |
 | `DELETE <key>` | `OK` or `NOT_FOUND` |
 | malformed or oversized command | `ERROR` |
+| connection above the 32-client limit | `ERROR`, then close |
 
 The process stores up to 1024 live keys. Expired keys behave as missing and
 their slots are reclaimed when needed. There is no background sweeper,
 eviction, persistence, or authentication yet.
 
 Each client connection runs in its own POSIX thread while the process-wide store
-remains shared and mutex-protected. Stored keys survive across connections.
+remains shared and mutex-protected. The server accepts up to 32 simultaneous
+clients and releases a slot when a client disconnects. Stored keys survive
+across connections.
 
 The HTTP server can optionally use this cache for `GET /hello` through
 `--cache-host` and `--cache-port`. The integration stores the body under

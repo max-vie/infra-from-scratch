@@ -4,6 +4,8 @@
   language, protocol, storage, and expiry decisions.
 - [`adr/002-handle-concurrent-clients.md`](adr/002-handle-concurrent-clients.md)
   records the client-concurrency decision.
+- [`adr/003-limit-concurrent-clients.md`](adr/003-limit-concurrent-clients.md)
+  records the connection limit and overload response.
 
 See the [component README](../README.md) for current behavior, run, and test
 commands.

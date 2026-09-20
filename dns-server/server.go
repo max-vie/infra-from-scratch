@@ -61,6 +61,17 @@ func listenAddress(host string, port int) (string, error) {
 	return net.JoinHostPort(host, strconv.Itoa(port)), nil
 }
 
+func errorResponse(query []byte, queryFlags, responseCode uint16) []byte {
+	response := make([]byte, headerSize)
+	copy(response[0:2], query[0:2])
+	// Keep the opcode and recursion request in the error response.
+	binary.BigEndian.PutUint16(
+		response[2:4],
+		0x8000|queryFlags&0x7900|responseCode,
+	)
+	return response
+}
+
 func makeResponse(query []byte) []byte {
 	// A DNS header is 12 bytes.
 	if len(query) < headerSize {
@@ -72,13 +83,13 @@ func makeResponse(query []byte) []byte {
 		return nil
 	}
 	if queryFlags&0x7800 != 0 {
-		response := make([]byte, headerSize)
-		copy(response[0:2], query[0:2])
-		// Keep the opcode and recursion request in the error response.
-		binary.BigEndian.PutUint16(response[2:4], 0x8004|queryFlags&0x7900)
-		return response
+		return errorResponse(query, queryFlags, 4)
 	}
-	if binary.BigEndian.Uint16(query[4:6]) != 1 {
+	questionCount := binary.BigEndian.Uint16(query[4:6])
+	if questionCount > 1 {
+		return errorResponse(query, queryFlags, 1)
+	}
+	if questionCount == 0 {
 		return nil
 	}
 
@@ -86,7 +97,7 @@ func makeResponse(query []byte) []byte {
 	position := headerSize
 	for {
 		if position >= len(query) {
-			return nil
+			return errorResponse(query, queryFlags, 1)
 		}
 
 		length := int(query[position])
@@ -95,13 +106,13 @@ func makeResponse(query []byte) []byte {
 			break
 		}
 		if length&0xc0 != 0 || position+length > len(query) {
-			return nil
+			return errorResponse(query, queryFlags, 1)
 		}
 		position += length
 	}
 
 	if position+4 > len(query) {
-		return nil
+		return errorResponse(query, queryFlags, 1)
 	}
 	questionEnd := position + 4
 	question := query[headerSize:questionEnd]

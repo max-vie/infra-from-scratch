@@ -116,7 +116,7 @@ func TestMakeResponseUnsupportedOpcode(t *testing.T) {
 	}
 }
 
-func TestMakeResponseRejectsMalformedQueries(t *testing.T) {
+func TestMakeResponseHandlesInvalidPackets(t *testing.T) {
 	validQuery := dnsQuery("app.local", typeA)
 	zeroQuestions := append([]byte(nil), validQuery...)
 	binary.BigEndian.PutUint16(zeroQuestions[4:6], 0)
@@ -130,23 +130,37 @@ func TestMakeResponseRejectsMalformedQueries(t *testing.T) {
 	longLabel[headerSize] = 20
 
 	cases := []struct {
-		name  string
-		query []byte
+		name            string
+		query           []byte
+		wantFormatError bool
 	}{
 		{name: "short header", query: []byte{0, 1}},
 		{name: "zero questions", query: zeroQuestions},
-		{name: "multiple questions", query: twoQuestions},
 		{name: "response packet", query: responsePacket},
-		{name: "compressed name", query: compressedName},
-		{name: "label exceeds packet", query: longLabel},
-		{name: "missing name terminator", query: validQuery[:headerSize+10]},
-		{name: "truncated question", query: validQuery[:len(validQuery)-1]},
+		{name: "multiple questions", query: twoQuestions, wantFormatError: true},
+		{name: "compressed name", query: compressedName, wantFormatError: true},
+		{name: "label exceeds packet", query: longLabel, wantFormatError: true},
+		{name: "missing name terminator", query: validQuery[:headerSize+10], wantFormatError: true},
+		{name: "truncated question", query: validQuery[:len(validQuery)-1], wantFormatError: true},
 	}
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			if response := makeResponse(testCase.query); response != nil {
-				t.Fatal("expected malformed query to be rejected")
+			response := makeResponse(testCase.query)
+			if !testCase.wantFormatError {
+				if response != nil {
+					t.Fatal("expected packet to be ignored")
+				}
+				return
+			}
+			if len(response) != headerSize {
+				t.Fatalf("response length = %d, want DNS header", len(response))
+			}
+			if got := binary.BigEndian.Uint16(response[2:4]); got != 0x8101 {
+				t.Fatalf("flags = %#04x, want FORMERR", got)
+			}
+			if !bytes.Equal(response[:2], testCase.query[:2]) {
+				t.Fatal("response did not preserve the transaction ID")
 			}
 		})
 	}

@@ -8,8 +8,9 @@ HTTP request per connection to a configured backend.
 The proxy reads one header-terminated request, forwards the raw bytes, and
 relays the response until the backend closes its connection. It limits request
 headers to 64 KiB and returns `400 Bad Request` for empty, incomplete,
-oversized, or body-framed requests. It returns `502 Bad Gateway` when the
-backend fails before response bytes reach the client.
+oversized, or body-framed requests. It returns `502 Bad Gateway` for non-timeout
+backend failures before response bytes reach the client and `504 Gateway
+Timeout` when the backend does not respond before the five-second deadline.
 
 The proxy does not terminate TLS or support request bodies, persistent
 connections, chunked transfer encoding, or multiple backends.

@@ -106,8 +106,15 @@ func handleConnection(client net.Conn, backendAddress string) {
 		err = relay(backend, client, request, &responseStarted)
 	}
 	if err != nil && !responseStarted {
-		// Report an unavailable or failed backend to the client.
-		sendError(client, "502 Bad Gateway", []byte("Bad Gateway\n"))
+		status := "502 Bad Gateway"
+		body := []byte("Bad Gateway\n")
+		var timeoutError net.Error
+		if errors.As(err, &timeoutError) && timeoutError.Timeout() {
+			status = "504 Gateway Timeout"
+			body = []byte("Gateway Timeout\n")
+		}
+		_ = client.SetWriteDeadline(time.Now().Add(socketTimeout))
+		sendError(client, status, body)
 	}
 }
 

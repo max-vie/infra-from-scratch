@@ -28,6 +28,22 @@ with socket.socket() as listener:
             struct.pack("ii", 1, 0),
         )
 """
+STALLED_BACKEND_SCRIPT = """
+import socket
+import sys
+import time
+
+with socket.socket() as listener:
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", int(sys.argv[1])))
+    listener.listen(2)
+    with listener.accept()[0]:
+        pass
+    connection, _ = listener.accept()
+    with connection:
+        connection.recv(4096)
+        time.sleep(6)
+"""
 
 
 def free_port():
@@ -108,9 +124,11 @@ class TestReverseProxy(unittest.TestCase):
 
                 self.assertNotEqual(result.returncode, 0)
 
-    def request(self, proxy_port, request):
+    def request(self, proxy_port, request, timeout=2):
         # Send one request and read until the proxy closes the connection.
-        with socket.create_connection((HOST, proxy_port), timeout=2) as connection:
+        with socket.create_connection(
+            (HOST, proxy_port), timeout=timeout
+        ) as connection:
             connection.sendall(request)
             connection.shutdown(socket.SHUT_WR)
 
@@ -177,6 +195,24 @@ class TestReverseProxy(unittest.TestCase):
 
         self.assertIn(b"HTTP/1.0 502 Bad Gateway", response)
         self.assertIn(b"Bad Gateway\n", response)
+
+    def test_returns_gateway_timeout_when_backend_stalls(self):
+        backend_port = free_port()
+        self.start_process(
+            [sys.executable, "-c", STALLED_BACKEND_SCRIPT, str(backend_port)],
+            cwd=".",
+        )
+        wait_for_port(backend_port)
+        proxy_port = self.start_proxy(backend_port)
+
+        response = self.request(
+            proxy_port,
+            b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            timeout=7,
+        )
+
+        self.assertIn(b"HTTP/1.0 504 Gateway Timeout", response)
+        self.assertIn(b"Gateway Timeout\n", response)
 
     def test_returns_bad_request_for_incomplete_headers(self):
         proxy_port = self.start_proxy(free_port())

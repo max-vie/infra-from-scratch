@@ -9,6 +9,7 @@ TOKEN_SYMBOLS = "!#$%&'*+-.^_`|~"
 DNS_HEADER_SIZE = 12
 DNS_TYPE_A = 1
 DNS_CLASS_IN = 1
+DEFAULT_HTTP_TIMEOUT = 5
 
 
 @dataclass
@@ -233,7 +234,7 @@ class URL:
 
         self.host_header = authority
 
-    def request(self, resolver=None):
+    def request(self, resolver=None, timeout=DEFAULT_HTTP_TIMEOUT):
         # Open a TCP connection and send the existing HTTP/1.0 request.
         host = resolver.resolve(self.host) if resolver else self.host
         with socket.socket(
@@ -241,6 +242,7 @@ class URL:
             type=socket.SOCK_STREAM,
             proto=socket.IPPROTO_TCP,
         ) as s:
+            s.settimeout(timeout)
             s.connect((host, self.port))
 
             request = "GET {} HTTP/1.0\r\n".format(self.path)

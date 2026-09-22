@@ -15,8 +15,9 @@ from client import DNSResolver, Response, URL
 
 
 class OneShotResponseServer:
-    def __init__(self, response):
+    def __init__(self, response, delay=0):
         self.response = response
+        self.delay = delay
         self.listener = socket.socket()
         self.listener.bind(("127.0.0.1", 0))
         self.listener.listen(1)
@@ -37,6 +38,7 @@ class OneShotResponseServer:
                 connection, _ = self.listener.accept()
                 with connection:
                     self.request = connection.recv(4096)
+                    time.sleep(self.delay)
                     connection.sendall(self.response)
         except OSError:
             pass
@@ -227,6 +229,11 @@ class TestHTTP(unittest.TestCase):
 
         with self.assertRaises(ConnectionRefusedError):
             URL(f"127.0.0.1:{closed_port}/").request()
+
+    def test_request_times_out_when_server_stalls(self):
+        with OneShotResponseServer(b"", delay=0.1) as server:
+            with self.assertRaises(TimeoutError):
+                URL(f"127.0.0.1:{server.port}/").request(timeout=0.01)
 
     def test_rejects_https(self): # Remove/refactor after tls integration 
         with self.assertRaises(ValueError):

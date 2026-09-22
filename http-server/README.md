@@ -10,7 +10,8 @@ over TCP sockets.
 HTTP version, numeric status, reason phrase, case-insensitive headers, and raw
 body bytes. Well-formed error responses are returned like successful responses.
 Pass a `DNSResolver` to `request(resolver=...)` when the address should resolve
-through a configured UDP DNS server.
+through a configured UDP DNS server. TCP connection and response operations use
+a five-second timeout by default; pass `timeout=` to choose another duration.
 
 The server reads one request through `\r\n\r\n`, limits the header block to 64
 KiB, and closes the connection after responding. It handles each client in its

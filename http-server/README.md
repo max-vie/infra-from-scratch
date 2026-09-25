@@ -21,6 +21,12 @@ Pass `--cache-host HOST --cache-port PORT` to enable an optional cache-aside
 path for `GET /hello`. It stores the response body with a 60-second TTL and
 serves the origin response when the cache is missing or unavailable.
 
+Pass `--registry-port PORT` to register this server with a local load balancer.
+The server renews its registration every second and removes it on graceful
+shutdown. If the process stops abruptly, the registration expires after three
+seconds. With `--host 0.0.0.0`, it advertises `127.0.0.1` for local discovery.
+Registry mode requires a numeric IPv4 listen host.
+
 | Request | Response |
 | --- | --- |
 | `GET /` | `200 OK` and `HELLO WORLD!` |

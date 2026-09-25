@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -23,6 +24,9 @@ const (
 	maxRequestSize    = 64 * 1024
 	socketTimeout     = 5 * time.Second
 	healthCooldown    = 1 * time.Second
+	backendLease      = 3 * time.Second
+	maxBackends       = 32
+	maxAddressSize    = 128
 )
 
 var unsupportedBodyHeaders = []string{"content-length", "transfer-encoding"}
@@ -31,34 +35,91 @@ var errRequestTooLarge = errors.New("request headers are too large")
 
 type backendFlags []string
 
+type backendState struct {
+	address   string
+	retryAt   time.Time
+	expiresAt time.Time
+}
+
 type backendPool struct {
-	addresses []string
-	retryAt   []time.Time
-	mutex     sync.Mutex
+	backends []*backendState
+	mutex    sync.Mutex
 }
 
 func newBackendPool(addresses []string) *backendPool {
-	return &backendPool{
-		addresses: addresses,
-		retryAt:   make([]time.Time, len(addresses)),
+	pool := &backendPool{}
+	for _, address := range addresses {
+		pool.backends = append(pool.backends, &backendState{address: address})
 	}
+	return pool
 }
 
-func (pool *backendPool) available(index int) bool {
+func (pool *backendPool) pruneExpired(now time.Time) {
+	active := pool.backends[:0]
+	for _, backend := range pool.backends {
+		if backend.expiresAt.IsZero() || now.Before(backend.expiresAt) {
+			active = append(active, backend)
+		}
+	}
+	pool.backends = active
+}
+
+func (pool *backendPool) snapshot() []*backendState {
 	pool.mutex.Lock()
 	defer pool.mutex.Unlock()
-	return pool.retryAt[index].IsZero() || !time.Now().Before(pool.retryAt[index])
+	pool.pruneExpired(time.Now())
+	return append([]*backendState(nil), pool.backends...)
 }
 
-func (pool *backendPool) markFailure(index int) {
+func (pool *backendPool) register(address string) error {
 	pool.mutex.Lock()
-	pool.retryAt[index] = time.Now().Add(healthCooldown)
+	defer pool.mutex.Unlock()
+	now := time.Now()
+	pool.pruneExpired(now)
+	for _, backend := range pool.backends {
+		if backend.address == address {
+			backend.expiresAt = now.Add(backendLease)
+			return nil
+		}
+	}
+	if len(pool.backends) >= maxBackends {
+		return errors.New("backend limit reached")
+	}
+	pool.backends = append(pool.backends, &backendState{
+		address: address, expiresAt: now.Add(backendLease),
+	})
+	return nil
+}
+
+func (pool *backendPool) remove(address string) bool {
+	pool.mutex.Lock()
+	defer pool.mutex.Unlock()
+	for index, backend := range pool.backends {
+		if backend.address == address {
+			pool.backends = append(pool.backends[:index], pool.backends[index+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+func (pool *backendPool) available(backend *backendState) bool {
+	pool.mutex.Lock()
+	defer pool.mutex.Unlock()
+	now := time.Now()
+	return (backend.expiresAt.IsZero() || now.Before(backend.expiresAt)) &&
+		(backend.retryAt.IsZero() || !now.Before(backend.retryAt))
+}
+
+func (pool *backendPool) markFailure(backend *backendState) {
+	pool.mutex.Lock()
+	backend.retryAt = time.Now().Add(healthCooldown)
 	pool.mutex.Unlock()
 }
 
-func (pool *backendPool) markSuccess(index int) {
+func (pool *backendPool) markSuccess(backend *backendState) {
 	pool.mutex.Lock()
-	pool.retryAt[index] = time.Time{}
+	backend.retryAt = time.Time{}
 	pool.mutex.Unlock()
 }
 
@@ -75,37 +136,48 @@ func main() {
 	// Keep listener and backend addresses configurable for local experiments.
 	listenHost := flag.String("listen-host", defaultListenHost, "address to bind")
 	listenPort := flag.Int("listen-port", defaultListenPort, "port to bind (1-65535)")
+	registryPort := flag.Int("registry-port", 0, "local backend registry port (1-65535)")
 	var backends backendFlags
-	flag.Var(&backends, "backend", "backend as HOST:PORT (required twice)")
+	flag.Var(&backends, "backend", "backend as HOST:PORT (required twice without registry)")
 	flag.Parse()
 
 	listenAddress, err := hostPort(*listenHost, *listenPort)
 	if err != nil {
 		fatal(err)
 	}
-	if len(backends) != backendCount {
+	if *registryPort == 0 && len(backends) != backendCount {
 		fatal(errors.New("exactly two --backend options are required"))
+	}
+	if *registryPort != 0 && len(backends) != 0 {
+		fatal(errors.New("--backend cannot be used with --registry-port"))
+	}
+	if *registryPort < 0 || *registryPort > 65535 {
+		fatal(errors.New("registry port must be between 1 and 65535"))
 	}
 	backendAddresses := make([]string, 0, backendCount)
 	for _, backend := range backends {
-		host, rawPort, ok := strings.Cut(backend, ":")
-		if !ok || host == "" || rawPort == "" {
-			fatal(fmt.Errorf("backend must be HOST:PORT: %q", backend))
-		}
-		port, err := strconv.Atoi(rawPort)
-		if err != nil {
-			fatal(fmt.Errorf("backend must be HOST:PORT: %q", backend))
-		}
-		address, err := hostPort(host, port)
+		address, err := backendAddress(backend)
 		if err != nil {
 			fatal(err)
 		}
 		backendAddresses = append(backendAddresses, address)
 	}
 
-	if err := serve(listenAddress, backendAddresses); err != nil {
+	if err := serve(listenAddress, backendAddresses, *registryPort); err != nil {
 		fatal(err)
 	}
+}
+
+func backendAddress(value string) (string, error) {
+	host, rawPort, ok := strings.Cut(value, ":")
+	if !ok || host == "" || rawPort == "" {
+		return "", fmt.Errorf("backend must be HOST:PORT: %q", value)
+	}
+	port, err := strconv.Atoi(rawPort)
+	if err != nil {
+		return "", fmt.Errorf("backend must be HOST:PORT: %q", value)
+	}
+	return hostPort(host, port)
 }
 
 func hostPort(host string, port int) (string, error) {
@@ -120,7 +192,7 @@ func fatal(err error) {
 	os.Exit(2)
 }
 
-func serve(listenAddress string, backendAddresses []string) error {
+func serve(listenAddress string, backendAddresses []string, registryPort int) error {
 	// Listen for local TCP connections.
 	listener, err := net.Listen("tcp", listenAddress)
 	if err != nil {
@@ -128,6 +200,24 @@ func serve(listenAddress string, backendAddresses []string) error {
 	}
 	defer listener.Close()
 	pool := newBackendPool(backendAddresses)
+	if registryPort != 0 {
+		registryAddress := net.JoinHostPort("127.0.0.1", strconv.Itoa(registryPort))
+		registry, err := net.Listen("tcp", registryAddress)
+		if err != nil {
+			return err
+		}
+		defer registry.Close()
+		go func() {
+			server := http.Server{
+				Handler:           registryHandler(pool),
+				ReadHeaderTimeout: 2 * time.Second,
+				ReadTimeout:       2 * time.Second,
+			}
+			if err := server.Serve(registry); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+			}
+		}()
+	}
 
 	fmt.Printf(
 		"serving load balancer on %s with %d backends\n",
@@ -149,6 +239,51 @@ func serve(listenAddress string, backendAddresses []string) error {
 	}
 }
 
+func registryHandler(pool *backendPool) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/backends" {
+			http.NotFound(writer, request)
+			return
+		}
+		if request.Method == http.MethodGet {
+			for _, backend := range pool.snapshot() {
+				fmt.Fprintln(writer, backend.address)
+			}
+			return
+		}
+		if request.Method != http.MethodPut && request.Method != http.MethodDelete {
+			writer.Header().Set("Allow", "GET, PUT, DELETE")
+			http.Error(writer, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(request.Body, maxAddressSize+1))
+		if err != nil || len(body) > maxAddressSize {
+			http.Error(writer, "invalid backend address", http.StatusBadRequest)
+			return
+		}
+		address, err := backendAddress(strings.TrimSpace(string(body)))
+		if err != nil {
+			http.Error(writer, "invalid backend address", http.StatusBadRequest)
+			return
+		}
+		host, _, _ := net.SplitHostPort(address)
+		if net.ParseIP(host).To4() == nil {
+			http.Error(writer, "backend address must use IPv4", http.StatusBadRequest)
+			return
+		}
+		if request.Method == http.MethodPut {
+			if err := pool.register(address); err != nil {
+				http.Error(writer, err.Error(), http.StatusConflict)
+				return
+			}
+		} else if !pool.remove(address) {
+			http.Error(writer, "backend not found", http.StatusNotFound)
+			return
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	})
+}
+
 func handleConnection(client net.Conn, pool *backendPool, selection *atomic.Uint64) {
 	// Validate the request before choosing a backend.
 	_ = client.SetDeadline(time.Now().Add(socketTimeout))
@@ -163,23 +298,27 @@ func handleConnection(client net.Conn, pool *backendPool, selection *atomic.Uint
 	}
 
 	// Claim this request's starting backend so concurrent clients still alternate.
-	initialIndex := int(selection.Add(1)-1) % len(pool.addresses)
-	for offset := range len(pool.addresses) {
-		backendIndex := (initialIndex + offset) % len(pool.addresses)
-		if !pool.available(backendIndex) {
+	backends := pool.snapshot()
+	if len(backends) == 0 {
+		sendError(client, "502 Bad Gateway", []byte("Bad Gateway\n"))
+		return
+	}
+	initialIndex := int(selection.Add(1)-1) % len(backends)
+	for offset := range len(backends) {
+		selected := backends[(initialIndex+offset)%len(backends)]
+		if !pool.available(selected) {
 			continue
 		}
-		selectedBackend := pool.addresses[backendIndex]
 		responseStarted := false
 
-		backend, err := net.DialTimeout("tcp", selectedBackend, socketTimeout)
+		backend, err := net.DialTimeout("tcp", selected.address, socketTimeout)
 		if err == nil {
 			_ = backend.SetDeadline(time.Now().Add(socketTimeout))
 			err = relay(backend, client, request, &responseStarted)
 			backend.Close()
 		}
 		if err == nil {
-			pool.markSuccess(backendIndex)
+			pool.markSuccess(selected)
 			return
 		}
 		if responseStarted {
@@ -187,7 +326,7 @@ func handleConnection(client net.Conn, pool *backendPool, selection *atomic.Uint
 			// or append another error.
 			return
 		}
-		pool.markFailure(backendIndex)
+		pool.markFailure(selected)
 	}
 	sendError(client, "502 Bad Gateway", []byte("Bad Gateway\n"))
 }

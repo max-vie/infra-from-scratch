@@ -1,3 +1,4 @@
+import http.client
 import socket
 import subprocess
 import sys
@@ -156,8 +157,10 @@ class TestLoadBalancer(unittest.TestCase):
         except FileNotFoundError:
             return 0
 
-    def start_load_balancer(self, backends):
+    def start_load_balancer(self, backends, registry_port=None):
         load_balancer_port = free_port()
+        while load_balancer_port == registry_port:
+            load_balancer_port = free_port()
         command = [
             "go", "run", "server.go",
             "-listen-host", HOST,
@@ -165,9 +168,26 @@ class TestLoadBalancer(unittest.TestCase):
         ]
         for host, port in backends:
             command.extend(("-backend", f"{host}:{port}"))
+        if registry_port is not None:
+            command.extend(("-registry-port", str(registry_port)))
         self.start_process(command, cwd=LOAD_BALANCER_DIR)
         wait_for_port(load_balancer_port)
+        if registry_port is not None:
+            wait_for_port(registry_port)
         return load_balancer_port
+
+    def registry_request(self, registry_port, method, address=None):
+        connection = http.client.HTTPConnection(HOST, registry_port, timeout=2)
+        try:
+            connection.request(
+                method,
+                "/backends",
+                body=address.encode("ascii") if address is not None else None,
+            )
+            response = connection.getresponse()
+            return response.status, response.read()
+        finally:
+            connection.close()
 
     def request(self, load_balancer_port, request):
         # Send one request and read until the load balancer closes the connection.
@@ -211,6 +231,50 @@ class TestLoadBalancer(unittest.TestCase):
         self.assertIn(b"backend-a", responses[0])
         self.assertIn(b"backend-b", responses[1])
         self.assertIn(b"backend-a", responses[2])
+
+    def test_registry_changes_backends_without_restarting_balancer(self):
+        first = self.start_backend("backend-a")
+        second = self.start_backend("backend-b")
+        registry_port = free_port()
+        balancer_port = self.start_load_balancer([], registry_port)
+        request = b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+        first_address = f"{first[0]}:{first[1]}"
+        second_address = f"{second[0]}:{second[1]}"
+
+        self.assertIn(b"502 Bad Gateway", self.request(balancer_port, request))
+        self.assertEqual(self.registry_request(registry_port, "PUT", "bad")[0], 400)
+        self.assertEqual(self.registry_request(registry_port, "PUT", "localhost:8088")[0], 400)
+        self.assertEqual(
+            self.registry_request(registry_port, "PUT", "x" * 129)[0], 400
+        )
+        self.assertEqual(self.registry_request(registry_port, "PUT", first_address)[0], 204)
+        self.assertEqual(self.registry_request(registry_port, "PUT", first_address)[0], 204)
+        self.assertEqual(
+            self.registry_request(registry_port, "GET"),
+            (200, f"{first_address}\n".encode()),
+        )
+        self.assertIn(b"backend-a", self.request(balancer_port, request))
+
+        self.assertEqual(self.registry_request(registry_port, "PUT", second_address)[0], 204)
+        self.assertIn(b"backend-b", self.request(balancer_port, request))
+        self.assertIn(b"backend-a", self.request(balancer_port, request))
+
+        self.assertEqual(self.registry_request(registry_port, "DELETE", first_address)[0], 204)
+        self.assertEqual(
+            self.registry_request(registry_port, "GET"),
+            (200, f"{second_address}\n".encode()),
+        )
+        self.assertIn(b"backend-b", self.request(balancer_port, request))
+        self.assertEqual(self.registry_request(registry_port, "DELETE", second_address)[0], 204)
+        self.assertIn(b"502 Bad Gateway", self.request(balancer_port, request))
+        for port in range(10000, 10032):
+            self.assertEqual(
+                self.registry_request(registry_port, "PUT", f"{HOST}:{port}")[0],
+                204,
+            )
+        self.assertEqual(
+            self.registry_request(registry_port, "PUT", f"{HOST}:10032")[0], 409
+        )
 
     def test_handles_another_client_while_request_is_incomplete(self):
         backends = [
@@ -313,6 +377,8 @@ class TestLoadBalancer(unittest.TestCase):
             [],
             ["-backend", "127.0.0.1:8088"],
             ["-backend", "127.0.0.1:8088", "-backend", "bad"],
+            ["-registry-port", "65536"],
+            ["-registry-port", "8050", "-backend", "127.0.0.1:8088"],
             [
                 "-listen-port",
                 "0",

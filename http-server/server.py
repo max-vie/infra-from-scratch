@@ -1,6 +1,9 @@
 import argparse
 import socket
+import sys
 import threading
+import urllib.error
+import urllib.request
 
 from application import Request, Response, respond
 from cache_client import CacheClient, CacheError
@@ -13,6 +16,8 @@ CACHE_KEY = "http:/hello"
 CACHE_TTL = 60
 BUFFER_SIZE = 4096
 MAX_REQUEST_SIZE = 64 * 1024
+REGISTRY_REFRESH = 1
+REGISTRY_TIMEOUT = 0.5
 SUPPORTED_VERSIONS = {"HTTP/1.0", "HTTP/1.1"}
 TOKEN_SYMBOLS = "!#$%&'*+-.^_`|~"
 
@@ -162,23 +167,70 @@ def handle_connection(connection, cache=None):
             pass
 
 
-def serve(host=HOST, port=PORT, cache=None):
+def update_registry(registry_port, address, method):
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{registry_port}/backends",
+        data=address.encode("ascii"),
+        method=method,
+    )
+    with urllib.request.urlopen(request, timeout=REGISTRY_TIMEOUT):
+        pass
+
+
+def renew_registration(registry_port, address, stop):
+    reported_failure = False
+    while not stop.is_set():
+        try:
+            update_registry(registry_port, address, "PUT")
+            reported_failure = False
+        except (OSError, urllib.error.URLError) as error:
+            if not reported_failure:
+                print(f"registry registration failed: {error}", file=sys.stderr)
+                reported_failure = True
+        stop.wait(REGISTRY_REFRESH)
+
+
+def serve(host=HOST, port=PORT, cache=None, registry_port=None):
     # Listen for one request per connection.
+    if registry_port is not None:
+        advertised_host = "127.0.0.1" if host == "0.0.0.0" else host
+        try:
+            socket.inet_pton(socket.AF_INET, advertised_host)
+        except OSError as error:
+            raise ValueError("registry mode requires an IPv4 listen host") from error
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listen_socket:
         listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listen_socket.bind((host, port))
         listen_socket.listen(5)
         print(f"serving HTTP on {host}:{port} ...")
 
-        while True:
-            client_connection, _ = listen_socket.accept()
-            # Handle each client independently so a slow request cannot
-            # block others.
-            threading.Thread(
-                target=handle_connection,
-                args=(client_connection, cache),
+        stop = threading.Event()
+        if registry_port is not None:
+            address = f"{advertised_host}:{port}"
+            registration = threading.Thread(
+                target=renew_registration,
+                args=(registry_port, address, stop),
                 daemon=True,
-            ).start()
+            )
+            registration.start()
+        try:
+            while True:
+                client_connection, _ = listen_socket.accept()
+                # Handle each client independently so a slow request cannot
+                # block others.
+                threading.Thread(
+                    target=handle_connection,
+                    args=(client_connection, cache),
+                    daemon=True,
+                ).start()
+        finally:
+            if registry_port is not None:
+                stop.set()
+                registration.join()
+                try:
+                    update_registry(registry_port, address, "DELETE")
+                except (OSError, urllib.error.URLError):
+                    pass
 
 
 def parse_args(argv=None):
@@ -187,6 +239,7 @@ def parse_args(argv=None):
     parser.add_argument("--port", type=port, default=PORT)
     parser.add_argument("--cache-host")
     parser.add_argument("--cache-port", type=port, default=DEFAULT_CACHE_PORT)
+    parser.add_argument("--registry-port", type=port)
     return parser.parse_args(argv)
 
 
@@ -197,7 +250,7 @@ def main(argv=None):
         if args.cache_host
         else None
     )
-    serve(host=args.host, port=args.port, cache=cache)
+    serve(host=args.host, port=args.port, cache=cache, registry_port=args.registry_port)
 
 
 if __name__ == "__main__":

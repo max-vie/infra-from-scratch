@@ -6,6 +6,11 @@
   defines connection-failure handling.
 - [`adr/003-use-go-for-load-balancer.md`](adr/003-use-go-for-load-balancer.md)
   replaces the original Python implementation with Go.
+- [`adr/004-use-passive-backend-health.md`](adr/004-use-passive-backend-health.md)
+  records the one-second failure cooldown.
+
+Local backend registration is a cross-component decision recorded in
+[`docs/adr/003-use-local-leases-for-backend-discovery.md`](../../docs/adr/003-use-local-leases-for-backend-discovery.md).
 
 See the [component README](../README.md) for current behavior, run, and test
 commands.

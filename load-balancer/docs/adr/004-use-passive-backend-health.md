@@ -1,6 +1,6 @@
 # Use passive backend health tracking
 
-Last updated: 16.09.2026
+Last updated: 25.09.2026
 
 ## Summary
 
@@ -9,6 +9,10 @@ that fails before response relay begins. Retry that backend after a fixed
 one-second cooldown.
 
 ## Context
+
+[`docs/adr/003-use-local-leases-for-backend-discovery.md`](../../../docs/adr/003-use-local-leases-for-backend-discovery.md)
+adds an optional registry mode. The two configured backends in this record
+remain the default mode.
 
 The load balancer already distributes requests between two configured backends
 and fails over within the current request. A backend that remains unavailable
@@ -33,9 +37,10 @@ available. A partial response keeps the existing close-without-retry behavior.
 
 One failed backend no longer causes a failed connection attempt on every
 round-robin turn. A recovered backend can rejoin when its cooldown expires.
-The fixed cooldown can delay recovery detection by up to one second, and the
-component still has no active health probes, dynamic membership, weights,
-persistent connections, TLS, or request-body support.
+The fixed cooldown can delay recovery detection by up to one second. This
+decision does not add active health probes, weights, persistent connections,
+TLS, or request-body support. Optional dynamic membership is recorded in the
+cross-component discovery decision.
 
 ## References
 

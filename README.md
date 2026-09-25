@@ -35,8 +35,8 @@ flowchart LR
 ```
 
 The custom HTTP client drives the integrated request path. The HTTP servers can
-optionally use the in-memory cache for `GET /hello`; the cache also remains a
-standalone component with its own tests.
+optionally register with the load balancer and use the in-memory cache for
+`GET /hello`; the cache also remains a standalone component with its own tests.
 
 ## Components
 
@@ -45,7 +45,7 @@ standalone component with its own tests.
 | [HTTP client and server](http-server/) | Python | Working | URL parsing, HTTP messages, sockets, and application routing |
 | [DNS server](dns-server/) | Go | Working | UDP, binary message parsing, and DNS records |
 | [Reverse proxy](reverse-proxy/) | Go | Working | Concurrent clients, request forwarding, and gateway failures |
-| [Load balancer](load-balancer/) | Go | Working | Round-robin selection, failover, and passive backend health |
+| [Load balancer](load-balancer/) | Go | Working | Round-robin selection, failover, passive health, and local backend registration |
 | [In-memory cache](in-mem-cache/) | C | Working, optional | TCP text protocol, bounded storage, lazy expiry, and HTTP `/hello` caching |
 | Container runtime | C | Planned | Linux process and filesystem isolation |
 
@@ -88,13 +88,14 @@ The same checks run in GitHub Actions for pull requests and pushes to `main`.
 
 This is a learning project with deliberately small interfaces. The HTTP path
 does not support TLS, request bodies, persistent connections, or chunked
-transfer encoding. The DNS server owns one local record, the load balancer has
-two fixed backends, and the cache has no persistence or authentication. The
-HTTP cache path only covers the deterministic `/hello` response and fails open
-when the optional cache cannot be reached.
+transfer encoding. The DNS server owns one local record, and the load balancer
+uses two fixed backends by default or a local registry when enabled. The cache
+has no persistence or authentication. The HTTP cache path only covers the
+deterministic `/hello` response and fails open when the optional cache cannot
+be reached.
 
 Possible next steps include building the container runtime and exploring
-service discovery and observability.
+observability.
 
 ## Feedback and license
 

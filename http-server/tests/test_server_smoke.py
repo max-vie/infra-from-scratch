@@ -11,7 +11,7 @@ from pathlib import Path
 SERVER_DIR = Path(__file__).parents[1]
 sys.path.insert(0, str(SERVER_DIR))
 
-from server import MAX_REQUEST_SIZE, parse_args, parse_headers, parse_request_line
+from server import MAX_REQUEST_SIZE, parse_args, parse_headers, parse_request_line, serve
 
 
 HOST = "127.0.0.1"
@@ -77,6 +77,12 @@ class TestRequestParsing(unittest.TestCase):
 
         self.assertEqual(args.cache_host, "127.0.0.1")
         self.assertEqual(args.cache_port, 11212)
+
+    def test_registry_requires_ipv4_listen_host(self):
+        args = parse_args(["--registry-port", "8001"])
+        self.assertEqual(args.registry_port, 8001)
+        with self.assertRaisesRegex(ValueError, "IPv4"):
+            serve(host="localhost", registry_port=args.registry_port)
 
     def test_defaults_to_wildcard_listener(self):
         args = parse_args([])

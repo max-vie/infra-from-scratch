@@ -11,3 +11,5 @@ owns its detailed behavior, operating notes, sources, and decisions:
 
 The project uses a lean architecture decision record format described in
 [`001-use-lean-nygard-inspired-adr-format.md`](adr/001-use-lean-nygard-inspired-adr-format.md).
+The optional local backend registry is recorded in
+[`003-use-local-leases-for-backend-discovery.md`](adr/003-use-local-leases-for-backend-discovery.md).

@@ -8,6 +8,7 @@ owns its detailed behavior, operating notes, sources, and decisions:
 - [Reverse proxy](../reverse-proxy/README.md)
 - [Load balancer](../load-balancer/README.md)
 - [In-memory cache](../in-mem-cache/README.md)
+- [Container runtime](../container-runtime/README.md)
 
 The project uses a lean architecture decision record format described in
 [`001-use-lean-nygard-inspired-adr-format.md`](adr/001-use-lean-nygard-inspired-adr-format.md).

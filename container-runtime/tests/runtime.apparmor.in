@@ -1,0 +1,5 @@
+abi <abi/4.0>,
+
+profile infra-from-scratch-runtime "@RUNTIME_BINARY@" flags=(unconfined) {
+    userns,
+}

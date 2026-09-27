@@ -47,7 +47,7 @@ optionally register with the load balancer and use the in-memory cache for
 | [Reverse proxy](reverse-proxy/) | Go | Working | Concurrent clients, request forwarding, and gateway failures |
 | [Load balancer](load-balancer/) | Go | Working | Round-robin selection, failover, passive health, and local backend registration |
 | [In-memory cache](in-mem-cache/) | C | Working, optional | TCP text protocol, bounded storage, lazy expiry, and HTTP `/hello` caching |
-| Container runtime | C | Planned | Linux process and filesystem isolation |
+| [Container runtime](container-runtime/) | C | Working, Linux only | User, PID, and mount namespaces, supplied rootfs, and process cleanup |
 
 Each component owns its source, tests, documentation, and architecture
 decisions. Cross-component decisions live in [`docs/`](docs/).
@@ -77,12 +77,15 @@ python -m unittest discover -s http-server/tests -v
 python -m unittest discover -s reverse-proxy/tests -v
 python -m unittest discover -s load-balancer/tests -v
 python -m unittest discover -s in-mem-cache/tests -v
+python -m unittest discover -s container-runtime/tests -v
 python -m py_compile http-server/server.py http-server/client.py
 (cd dns-server && go test server.go server_test.go)
 python -m unittest discover -s integration-tests -v
 ```
 
 The same checks run in GitHub Actions for pull requests and pushes to `main`.
+The container suite also requires Linux 5.9 or newer with unprivileged user
+namespaces enabled and `ldd` to assemble its temporary rootfs.
 
 ## Boundaries
 
@@ -94,8 +97,9 @@ has no persistence or authentication. The HTTP cache path only covers the
 deterministic `/hello` response and fails open when the optional cache cannot
 be reached.
 
-Possible next steps include building the container runtime and exploring
-observability.
+The container runtime runs trusted local programs in a supplied rootfs and
+shares the host network and kernel. Possible next steps include observability
+across the network stack.
 
 ## Feedback and license
 

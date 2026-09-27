@@ -62,6 +62,12 @@ probe and copies its locally resolved loader and libraries into temporary
 rootfs directories. It exercises actual namespace operations and does not skip
 them when unavailable.
 
+Ubuntu hosts can also require an AppArmor profile granting user namespace
+permission to the launcher. CI loads a profile for one temporary runtime
+executable and removes it after the test step. `CONTAINER_RUNTIME_TEST_BINARY`
+selects that executable path; the suite still compiles the current source there
+before every run. Local tests use a fresh temporary directory by default.
+
 Tests verify the changed root and namespace identities, hidden host paths and
 processes, descriptor closure, dropped privileges, exit statuses, signal
 forwarding, orphan reaping, descendant termination, and rootfs reuse after a
@@ -79,3 +85,4 @@ leaves reaping of its dead namespace init to the host's init process.
 - [`pivot_root`](https://man7.org/linux/man-pages/man2/pivot_root.2.html)
 - [`close_range`](https://man7.org/linux/man-pages/man2/close_range.2.html)
 - [Parent death signals](https://man7.org/linux/man-pages/man2/PR_SET_PDEATHSIG.2const.html)
+- [Ubuntu AppArmor namespace restrictions](https://documentation.ubuntu.com/security/security-features/privilege-restriction/apparmor/)

@@ -58,6 +58,11 @@ removal, orphan reaping, and descendant cleanup. CI must run those checks on a
 Linux host with working unprivileged namespaces. CI fails when namespace
 isolation is unavailable.
 
+On Ubuntu CI, load an AppArmor profile granting user namespace permission to the
+exact temporary launcher path, then remove it when the test step exits. The
+runtime and its tests run as the unprivileged runner user. The test executable
+is always rebuilt from current source.
+
 ## References
 
 - [Component README](../../README.md)

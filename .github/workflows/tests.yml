@@ -46,7 +46,14 @@ jobs:
         run: python -m unittest discover -s in-mem-cache/tests -v
 
       - name: Test container runtime
-        run: python -m unittest discover -s container-runtime/tests -v
+        env:
+          CONTAINER_RUNTIME_TEST_BINARY: ${{ runner.temp }}/infra-container-runtime
+        run: |
+          sed "s|@RUNTIME_BINARY@|$CONTAINER_RUNTIME_TEST_BINARY|g" \
+            container-runtime/tests/runtime.apparmor.in > "$RUNNER_TEMP/runtime.apparmor"
+          sudo apparmor_parser -r "$RUNNER_TEMP/runtime.apparmor"
+          trap 'sudo apparmor_parser -R "$RUNNER_TEMP/runtime.apparmor"' EXIT
+          python -m unittest discover -s container-runtime/tests -v
 
       - name: Test DNS server
         working-directory: dns-server

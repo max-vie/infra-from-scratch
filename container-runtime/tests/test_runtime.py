@@ -18,7 +18,9 @@ class TestRuntime(unittest.TestCase):
     def setUpClass(cls):
         cls.build_dir = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls.build_dir.cleanup)
-        cls.binary = Path(cls.build_dir.name) / "runtime"
+        cls.binary = Path(os.environ.get(
+            "CONTAINER_RUNTIME_TEST_BINARY", str(Path(cls.build_dir.name) / "runtime")
+        )).resolve()
         cls.probe = Path(cls.build_dir.name) / "probe"
         for source, output in (
             (COMPONENT / "runtime.c", cls.binary),

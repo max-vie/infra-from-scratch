@@ -23,7 +23,7 @@ flowchart LR
     Balancer[Load balancer]
     ServerA[HTTP server A]
     ServerB[HTTP server B]
-    Cache[In-memory cache<br/>optional /hello]
+    Cache[In-memory cache<br/>inside container runtime]
 
     DNS -. resolved address .-> Client
     Client -->|GET /health| Proxy
@@ -37,6 +37,8 @@ flowchart LR
 The custom HTTP client drives the integrated request path. The HTTP servers can
 optionally register with the load balancer and use the in-memory cache for
 `GET /hello`; the cache also remains a standalone component with its own tests.
+The integration suite launches the cache inside the Linux container runtime,
+using a temporary rootfs and the host's loopback network.
 
 ## Components
 
@@ -54,7 +56,8 @@ decisions. Cross-component decisions live in [`docs/`](docs/).
 
 ## Run the integrated path
 
-You need Python 3, Go, and GCC. No package installation is required.
+You need Python 3, Go, GCC, and `ldd`. The integrated path requires Linux 5.9 or
+newer with unprivileged user namespaces permitted by the host's security policy.
 
 ```bash
 git clone https://github.com/max-vie/infra-from-scratch.git

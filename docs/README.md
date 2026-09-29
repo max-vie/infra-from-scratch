@@ -14,3 +14,5 @@ The project uses a lean architecture decision record format described in
 [`001-use-lean-nygard-inspired-adr-format.md`](adr/001-use-lean-nygard-inspired-adr-format.md).
 The optional local backend registry is recorded in
 [`003-use-local-leases-for-backend-discovery.md`](adr/003-use-local-leases-for-backend-discovery.md).
+The cache's runtime integration is recorded in
+[`004-run-the-integrated-cache-in-the-container-runtime.md`](adr/004-run-the-integrated-cache-in-the-container-runtime.md).

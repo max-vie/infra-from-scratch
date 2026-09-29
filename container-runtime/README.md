@@ -67,12 +67,31 @@ permission to the launcher. CI loads a profile for one temporary runtime
 executable and removes it after the test step. `CONTAINER_RUNTIME_TEST_BINARY`
 selects that executable path; the suite still compiles the current source there
 before every run. Local tests use a fresh temporary directory by default.
+CI keeps that profile active while running the stack integration suite, which
+rebuilds the same launcher and runs the C cache inside its own temporary rootfs.
 
 Tests verify the changed root and namespace identities, hidden host paths and
 processes, descriptor closure, dropped privileges, exit statuses, signal
 forwarding, orphan reaping, descendant termination, and rootfs reuse after a
 failed exec. Host mount paths are checked after execution. Abrupt launcher death
 leaves reaping of its dead namespace init to the host's init process.
+
+## Cache integration
+
+The integrated stack builds a cache rootfs from the trusted C cache binary and
+the loader and libraries reported by `ldd`. It starts the cache as PID 2 under
+the runtime and accesses its TCP port on the shared host network. To launch a
+cache binary already prepared at `/cache-server` in a supplied rootfs:
+
+```bash
+./container-runtime/runtime /path/to/cache-rootfs /cache-server \
+  --listen-host 127.0.0.1 --listen-port 11211
+```
+
+Run `python -m unittest discover -s integration-tests -v` to build that rootfs
+automatically for the test stack. The suite checks HTTP cache population and
+hits, distinct PID and mount namespaces, and process and listener cleanup while
+a cache client remains connected.
 
 ## Documentation
 

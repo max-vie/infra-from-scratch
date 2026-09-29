@@ -1,3 +1,6 @@
+import os
+import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -21,6 +24,7 @@ LOAD_BALANCER_DIR = ROOT / "load-balancer"
 REVERSE_PROXY_DIR = ROOT / "reverse-proxy"
 DNS_DIR = ROOT / "dns-server"
 CACHE_SOURCE = ROOT / "in-mem-cache" / "server.c"
+RUNTIME_SOURCE = ROOT / "container-runtime" / "runtime.c"
 HOST = "127.0.0.1"
 
 
@@ -72,7 +76,11 @@ class TestStack(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.build_dir = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.build_dir.cleanup)
         cls.cache_binary = Path(cls.build_dir.name) / "cache-server"
+        cls.runtime_binary = Path(os.environ.get(
+            "CONTAINER_RUNTIME_TEST_BINARY", str(Path(cls.build_dir.name) / "runtime")
+        )).resolve()
         subprocess.run(
             [
                 "gcc",
@@ -89,10 +97,23 @@ class TestStack(unittest.TestCase):
             ],
             check=True,
         )
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.build_dir.cleanup()
+        subprocess.run(
+            ["gcc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-pedantic",
+             "-O2", "-o", str(cls.runtime_binary), str(RUNTIME_SOURCE)],
+            check=True,
+        )
+        cls.cache_rootfs = Path(cls.build_dir.name) / "cache-rootfs"
+        (cls.cache_rootfs / "proc").mkdir(parents=True)
+        shutil.copy2(cls.cache_binary, cls.cache_rootfs / "cache-server")
+        # Resolve libraries only for the freshly compiled, trusted cache binary.
+        linked = subprocess.run(
+            ["ldd", str(cls.cache_binary)], capture_output=True, text=True, check=True,
+            env={**os.environ, "LC_ALL": "C"},
+        ).stdout
+        for library in set(re.findall(r"(/[\w/+.\-]+)", linked)):
+            destination = cls.cache_rootfs / library.lstrip("/")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(library, destination)
 
     def setUp(self):
         self.processes = []
@@ -120,14 +141,16 @@ class TestStack(unittest.TestCase):
     def start_cache(self):
         cache_port = free_port()
         cache = self.start_process(
-            str(self.cache_binary),
+            str(self.runtime_binary),
+            str(self.cache_rootfs),
+            "/cache-server",
             "--listen-host",
             HOST,
             "--listen-port",
             str(cache_port),
         )
         wait_for_tcp_port(cache, cache_port)
-        return cache_port
+        return cache_port, cache
 
     def start_http_backend(self, cache_port=None, registry_port=None):
         backend_port = free_port()
@@ -150,7 +173,7 @@ class TestStack(unittest.TestCase):
         return backend_port, backend
 
     def start_http_dns_load_balancer(self, cache_available=True):
-        cache_port = self.start_cache() if cache_available else free_port()
+        cache_port = self.start_cache()[0] if cache_available else free_port()
         backend_ports = []
         for _ in range(2):
             backend_port, _ = self.start_http_backend(cache_port=cache_port)
@@ -264,6 +287,47 @@ class TestStack(unittest.TestCase):
 
         self.assertEqual(response.status, 200)
         self.assertEqual(response.body, b"HELLO WORLD!\n")
+
+    def test_cache_container_shutdown_releases_processes_and_listener(self):
+        cache_port, launcher = self.start_cache()
+        init_children = Path(
+            f"/proc/{launcher.pid}/task/{launcher.pid}/children"
+        ).read_text().split()
+        self.assertEqual(len(init_children), 1)
+        init_pid = int(init_children[0])
+        cache_children = Path(f"/proc/{init_pid}/task/{init_pid}/children").read_text().split()
+        self.assertEqual(len(cache_children), 1)
+        cache_pid = int(cache_children[0])
+        self.assertTrue(os.path.samefile(f"/proc/{cache_pid}/root", self.cache_rootfs))
+        for namespace in ("pid", "mnt"):
+            self.assertNotEqual(
+                os.stat(f"/proc/{cache_pid}/ns/{namespace}").st_ino,
+                os.stat(f"/proc/self/ns/{namespace}").st_ino,
+            )
+
+        with socket.create_connection((HOST, cache_port), timeout=1) as client:
+            client.sendall(b"GET missing\n")
+            with client.makefile("rb") as reply:
+                self.assertEqual(reply.readline(), b"NOT_FOUND\n")
+            self.assertGreaterEqual(len(list(Path(f"/proc/{cache_pid}/task").iterdir())), 2)
+            launcher.terminate()
+            self.assertEqual(launcher.wait(timeout=2), 143)
+            try:
+                self.assertEqual(client.recv(4096), b"")
+            except ConnectionResetError:
+                pass
+
+        for pid in (init_pid, cache_pid):
+            self.assertFalse(Path(f"/proc/{pid}").exists(), f"cache process {pid} remains")
+        with socket.socket() as closed_listener:
+            closed_listener.settimeout(1)
+            with self.assertRaises(ConnectionRefusedError):
+                closed_listener.connect((HOST, cache_port))
+        with socket.socket() as replacement:
+            replacement.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            replacement.bind((HOST, cache_port))
+        self.assertFalse(os.path.ismount(self.cache_rootfs))
+        self.assertEqual(list((self.cache_rootfs / "proc").iterdir()), [])
 
     def test_backend_registration_changes_the_full_path(self):
         registry_port = free_port()

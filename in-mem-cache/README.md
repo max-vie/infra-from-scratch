@@ -30,6 +30,13 @@ The HTTP server can optionally use this cache for `GET /hello` through
 `--cache-host` and `--cache-port`. The integration stores the body under
 `http:/hello` with a 60-second TTL.
 
+The stack integration suite builds a temporary rootfs containing the freshly
+compiled cache, its loader and shared libraries, and `proc/`. It launches
+`/cache-server` through the [container runtime](../container-runtime/) and checks
+`/hello` caching and shutdown of the cache process and listener. The runtime
+shares host networking, so HTTP backends connect through the usual loopback
+cache address.
+
 ## Run
 
 Build the cache from the project root:

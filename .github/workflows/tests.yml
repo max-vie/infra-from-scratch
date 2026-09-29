@@ -45,7 +45,11 @@ jobs:
       - name: Test in-memory cache
         run: python -m unittest discover -s in-mem-cache/tests -v
 
-      - name: Test container runtime
+      - name: Test DNS server
+        working-directory: dns-server
+        run: go test server.go server_test.go
+
+      - name: Test container runtime and integrated stack
         env:
           CONTAINER_RUNTIME_TEST_BINARY: ${{ runner.temp }}/infra-container-runtime
         run: |
@@ -54,10 +58,4 @@ jobs:
           sudo apparmor_parser -r "$RUNNER_TEMP/runtime.apparmor"
           trap 'sudo apparmor_parser -R "$RUNNER_TEMP/runtime.apparmor"' EXIT
           python -m unittest discover -s container-runtime/tests -v
-
-      - name: Test DNS server
-        working-directory: dns-server
-        run: go test server.go server_test.go
-
-      - name: Test integrated stack
-        run: python -m unittest discover -s integration-tests -v
+          python -m unittest discover -s integration-tests -v
